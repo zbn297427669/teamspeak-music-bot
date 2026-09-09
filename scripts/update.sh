@@ -23,6 +23,7 @@ tsmb_load_deploy_config "$PROJECT_DIR"
 
 TASK_NAME="${TSMB_TASK_NAME:-TSMusicBot}"
 SERVICE_NAME="${TSMB_SERVICE_NAME:-tsmusicbot}"
+export TSMB_TASK_NAME="$TASK_NAME"
 
 cd "$PROJECT_DIR"
 : >"$LOG_FILE"
@@ -48,22 +49,31 @@ has_win_deploy() {
 
 run_windows_bat_in() {
   local linux_dir="$1"
-  local win_dir
-  win_dir="$(wslpath -w "$linux_dir")"
-  echo "Running Windows update.bat in: $win_dir"
-  cmd.exe /c "set TSMB_TASK_NAME=${TASK_NAME}&& set TSMB_SKIP_PULL=1&& set TSMB_NO_START=${TSMB_NO_START:-}&& set TSMB_FULL_SETUP=${TSMB_FULL_SETUP:-}&& set TSMB_SETUP_NOPAUSE=1&& set TSMB_UPDATE_NOPAUSE=1&& cd /d \"${win_dir}\" && scripts\\update.bat"
+  echo "Running Windows update.bat in: $(wslpath -w "$linux_dir")"
+  export TSMB_SKIP_PULL=1
+  export TSMB_SETUP_NOPAUSE=1
+  export TSMB_UPDATE_NOPAUSE=1
+  tsmb_run_win_bat "$linux_dir" "scripts\\update.bat"
 }
 
 update_via_windows_bat_same_dir() {
-  local win_dir
-  win_dir="$(wslpath -w "$PROJECT_DIR")"
+  local linux_dir="$PROJECT_DIR"
+  # Same-folder mode only works when the repo itself is on a Windows mount (/mnt/...).
+  if [[ "$linux_dir" != /mnt/* ]]; then
+    echo "[ERROR] Same-folder Windows update requires the repo under /mnt/<drive>/..."
+    echo "        Current path is on the Linux filesystem: $linux_dir"
+    echo "        Use deploy.windows.env (TSMB_WIN_DIR) for split deploy instead."
+    exit 1
+  fi
   echo "============================================"
   echo "  TSMusicBot - Update (WSL same folder → Windows)"
-  echo "  Project: $PROJECT_DIR"
-  echo "  Windows: $win_dir"
+  echo "  Project: $linux_dir"
+  echo "  Windows: $(wslpath -w "$linux_dir")"
   echo "============================================"
   echo
-  cmd.exe /c "set TSMB_TASK_NAME=${TASK_NAME}&& set TSMB_SKIP_PULL=${TSMB_SKIP_PULL:-}&& set TSMB_NO_START=${TSMB_NO_START:-}&& set TSMB_FULL_SETUP=${TSMB_FULL_SETUP:-}&& set TSMB_SETUP_NOPAUSE=1&& set TSMB_UPDATE_NOPAUSE=1&& cd /d \"${win_dir}\" && scripts\\update.bat"
+  export TSMB_SETUP_NOPAUSE=1
+  export TSMB_UPDATE_NOPAUSE=1
+  tsmb_run_win_bat "$linux_dir" "scripts\\update.bat"
 }
 
 deps_changed_between() {
@@ -132,11 +142,15 @@ update_split_deploy() {
 
   echo "---- [2/4] Stop Windows bot ----"
   if [[ -f "$win_linux/scripts/stop.bat" ]]; then
-    cmd.exe /c "set TSMB_TASK_NAME=${TASK_NAME}&& cd /d \"${win_win}\" && scripts\\stop.bat" \
+    tsmb_run_win_bat "$win_linux" "scripts\\stop.bat" \
       || echo "[WARN] stop.bat warning; continuing."
   else
-    schtasks.exe /End /TN "$TASK_NAME" >/dev/null 2>&1 \
-      || echo "[WARN] schtasks /End failed or task not running."
+    # First sync may not have stop.bat yet — end task by name only.
+    (
+      cd "$win_linux" 2>/dev/null || cd /mnt/c/Windows/System32 || true
+      schtasks.exe /End /TN "$TASK_NAME" >/dev/null 2>&1 \
+        || echo "[WARN] schtasks /End failed or task not running."
+    )
   fi
   sleep 2
   echo

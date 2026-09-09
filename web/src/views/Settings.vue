@@ -1152,6 +1152,39 @@
         </div>
       </div>
     </section>
+
+    <!-- About / version -->
+    <section class="settings-section">
+      <h2 class="section-title">关于</h2>
+      <div class="account-info-card">
+        <div class="account-row">
+          <span class="account-label">版本</span>
+          <span class="account-value version-mono">{{ appVersionDisplay || '加载中…' }}</span>
+        </div>
+        <div v-if="appVersionInfo?.packageVersion" class="account-row">
+          <span class="account-label">package.json</span>
+          <span class="account-value version-mono">{{ appVersionInfo.packageVersion }}</span>
+        </div>
+        <div v-if="appVersionInfo?.commit" class="account-row">
+          <span class="account-label">Commit</span>
+          <span class="account-value version-mono">{{ appVersionInfo.commit }}</span>
+        </div>
+        <div v-if="appVersionInfo?.syncedAt" class="account-row">
+          <span class="account-label">最近同步</span>
+          <span class="account-value">{{ appVersionInfo.syncedAt }}</span>
+        </div>
+        <div v-if="appVersionInfo?.source" class="account-row">
+          <span class="account-label">来源</span>
+          <span class="account-value">{{ appVersionInfo.source }}</span>
+        </div>
+      </div>
+      <p class="profile-section-hint">
+        导航栏与此处显示同一版本号。可用环境变量 <code>TSMB_VERSION</code> 覆盖显示；
+        WSL→Windows 同步会写入 commit 戳，无 .git 也能识别。
+      </p>
+      <p v-if="appVersionError" class="user-error">版本信息加载失败：{{ appVersionError }}</p>
+      <button class="btn-sm" type="button" @click="refreshAppVersion()">刷新版本信息</button>
+    </section>
   </div>
 </template>
 
@@ -1172,8 +1205,15 @@ import {
   type SpotifyConfigForm,
   type SpotifyStatus,
 } from '../composables/useSpotifySettings.js';
+import { useAppVersion } from '../composables/useAppVersion.js';
 
 const store = usePlayerStore();
+const {
+  versionInfo: appVersionInfo,
+  versionError: appVersionError,
+  display: appVersionDisplay,
+  refresh: refreshAppVersion,
+} = useAppVersion();
 
 function botStatusClass(bot: any) {
   if (!bot.connected) return 'offline';
@@ -3241,6 +3281,11 @@ onUnmounted(() => {
 }
 .account-label { color: var(--text-secondary); }
 .account-value { color: var(--text-primary); font-weight: 500; }
+.version-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  word-break: break-all;
+}
 .change-pw-form {
   display: flex; flex-direction: column; gap: 8px;
   max-width: 360px;

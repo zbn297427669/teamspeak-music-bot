@@ -27,6 +27,9 @@ RSYNC_EXCLUDES=(
   --exclude 'update.log'
   --exclude 'deploy.windows.env'
   --exclude '.windows-deploy'
+  --exclude '.tsmusicbot-version.json'
+  --exclude '.tsmusicbot-synced-from-wsl'
+  --exclude '.tsmusicbot-task-name'
   --exclude '.superpowers/'
   --exclude '.worktrees/'
   --exclude '.claude/'
@@ -71,7 +74,13 @@ if [[ "${TSMB_SYNC_DELETE:-}" == "1" ]]; then
 fi
 
 if command -v rsync >/dev/null 2>&1; then
-  rsync -a "${delete_flag[@]}" "${RSYNC_EXCLUDES[@]}" "$src"/ "$dst"/
+  # On /mnt/<drive> Windows filesystems, rsync's temp-file rename often gets
+  # "Permission denied". --inplace writes directly into the target files.
+  rsync_opts=(-a "${delete_flag[@]}" "${RSYNC_EXCLUDES[@]}")
+  if [[ "$dst" == /mnt/* ]]; then
+    rsync_opts+=(--inplace)
+  fi
+  rsync "${rsync_opts[@]}" "$src"/ "$dst"/
 else
   echo "[WARN] rsync not found — using tar fallback (no --delete)."
   tar -C "$src" --exclude='.git' --exclude='node_modules' --exclude='web/node_modules' \
@@ -90,4 +99,42 @@ fi
   echo "config=deploy.windows.env"
 } >"$dst/.tsmusicbot-synced-from-wsl"
 
-echo "[OK] Sync complete."
+# Persist task name for Windows bats (WSLENV is unreliable with non-ASCII).
+# Read by scripts\update.bat / stop.bat when TSMB_TASK_NAME env is empty.
+task_name="${TSMB_TASK_NAME:-TSMusicBot}"
+# UTF-8 no BOM; cmd set /p handles UTF-8 after chcp 65001 in those bats.
+printf '%s' "$task_name" >"$dst/.tsmusicbot-task-name"
+
+# Machine-readable version stamp for WebUI /api/health when Windows has no .git
+pkg_ver="$(node -p "require('./package.json').version" 2>/dev/null || echo "0.0.0")"
+commit="$(git -C "$src" rev-parse --short HEAD 2>/dev/null || true)"
+describe="$(git -C "$src" describe --tags --always --dirty 2>/dev/null || true)"
+synced_at="$(date -Iseconds)"
+node -e '
+const fs = require("fs");
+const out = process.argv[1];
+fs.writeFileSync(out, JSON.stringify({
+  packageVersion: process.argv[2],
+  commit: process.argv[3] || null,
+  describe: process.argv[4] || null,
+  syncedAt: process.argv[5],
+}, null, 2) + "\n");
+' "$dst/.tsmusicbot-version.json" "$pkg_ver" "$commit" "$describe" "$synced_at"
+
+# Ensure *.bat use CRLF on Windows (LF-only bats break cmd.exe:
+# 'elayedexpansion' is not recognized / interactive date prompt).
+tsmb_ensure_bat_crlf() {
+  local f="$1"
+  local tmp
+  tmp="$(mktemp)"
+  # strip existing CR, then append CR before each LF
+  sed 's/\r$//' "$f" | sed 's/$/\r/' >"$tmp"
+  cp "$tmp" "$f"
+  rm -f "$tmp"
+}
+
+while IFS= read -r -d '' bat; do
+  tsmb_ensure_bat_crlf "$bat"
+done < <(find "$dst" \( -path '*/node_modules/*' -o -path '*/.git/*' \) -prune -o -name '*.bat' -print0 2>/dev/null)
+
+echo "[OK] Sync complete (*.bat normalized to CRLF)."

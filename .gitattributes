@@ -1,0 +1,6 @@
+# Windows batch files must use CRLF or cmd.exe mis-parses lines
+# (classic symptoms: 'elayedexpansion' is not recognized, interactive date prompt).
+*.bat text eol=crlf
+
+# Shell scripts stay LF
+*.sh text eol=lf

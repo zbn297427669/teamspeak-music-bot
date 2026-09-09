@@ -39,6 +39,7 @@ import { requireNotGuest } from "./middleware/requireNotGuest.js";
 import { csrfOriginCheck } from "./middleware/csrf.js";
 import { createRateLimit } from "./middleware/rateLimit.js";
 import { validateSessionFromHeaders } from "./auth/validateSession.js";
+import { resolveAppVersion } from "../version.js";
 
 const SESSION_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -111,7 +112,16 @@ export function createWebServer(options: WebServerOptions): WebServer {
   });
 
   app.get("/api/health", (_req, res) => {
-    res.json({ status: "ok", version: "0.1.0" });
+    const v = resolveAppVersion();
+    res.json({
+      status: "ok",
+      version: v.version,
+      packageVersion: v.packageVersion,
+      commit: v.commit,
+      gitDescribe: v.gitDescribe,
+      syncedAt: v.syncedAt,
+      source: v.source,
+    });
   });
 
   app.get("/api/config/public-url", (_req, res) => {

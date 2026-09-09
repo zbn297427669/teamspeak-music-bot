@@ -12,5 +12,8 @@ setup.log
 update.log
 .windows-deploy
 deploy.windows.env
+.tsmusicbot-version.json
+.tsmusicbot-synced-from-wsl
+.tsmusicbot-task-name
 /bin/
 scripts/navbar_bigger.png

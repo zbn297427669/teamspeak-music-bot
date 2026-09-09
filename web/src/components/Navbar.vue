@@ -1,6 +1,9 @@
 <template>
   <nav class="navbar frosted-glass">
-    <RouterLink to="/" class="logo">TSMusicBot</RouterLink>
+    <RouterLink to="/" class="logo-wrap">
+      <span class="logo">TSMusicBot</span>
+      <span v-if="display" class="app-version" :title="detail || display">{{ display }}</span>
+    </RouterLink>
 
     <div class="nav-links">
       <RouterLink to="/" class="nav-link" active-class="active">发现</RouterLink>
@@ -147,9 +150,11 @@ import { useRouter } from 'vue-router';
 import { Icon } from '@iconify/vue';
 import { usePlayerStore } from '../stores/player.js';
 import { useSession } from '../composables/useSession.js';
+import { useAppVersion } from '../composables/useAppVersion.js';
 
 const store = usePlayerStore();
 const session = useSession();
+const { display, detail } = useAppVersion();
 const { canControlBot } = session;
 const navRouter = useRouter();
 
@@ -325,15 +330,44 @@ onUnmounted(() => {
   }
 }
 
+.logo-wrap {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  margin-right: 40px;
+  text-decoration: none;
+  min-width: 0;
+
+  @media (max-width: 768px) {
+    margin-right: 0;
+  }
+}
+
 .logo {
   font-size: 18px;
   font-weight: 700;
   color: var(--color-primary);
-  margin-right: 40px;
+  line-height: 1.1;
 
   @media (max-width: 768px) {
     font-size: 17px;
-    margin-right: 0;
+  }
+}
+
+.app-version {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.45;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+
+  @media (max-width: 768px) {
+    max-width: 110px;
+    font-size: 9px;
   }
 }
 

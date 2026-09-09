@@ -48,3 +48,60 @@ tsmb_win_dir_linux() {
   fi
   printf '%s' "$raw"
 }
+
+# Run a Windows .bat from WSL without UNC-cwd failures.
+# cmd.exe cannot use \\wsl.localhost\... as cwd; cd to /mnt/<drive>/... first
+# so the inherited Windows cwd is a normal drive path (D:\...).
+#
+# Usage: tsmb_run_win_bat "/mnt/d/bots/app" "scripts\\update.bat"
+# Passes TSMB_* via WSLENV (Unicode) so Chinese task names work.
+tsmb_run_win_bat() {
+  local linux_dir="$1"
+  local bat_rel="$2"
+  local bat_fwd="${bat_rel//\\//}"
+
+  if [[ ! -d "$linux_dir" ]]; then
+    echo "[ERROR] Windows runtime dir not found: $linux_dir" >&2
+    return 1
+  fi
+  if [[ ! -f "$linux_dir/$bat_fwd" ]]; then
+    echo "[ERROR] Missing $bat_fwd under $linux_dir" >&2
+    return 1
+  fi
+
+  # Always materialize task name on the Windows tree. WSLENV + non-ASCII is flaky;
+  # update.bat / stop.bat read .tsmusicbot-task-name when env is empty.
+  if [[ -n "${TSMB_TASK_NAME:-}" ]]; then
+    printf '%s' "$TSMB_TASK_NAME" >"$linux_dir/.tsmusicbot-task-name"
+  fi
+
+  local share=()
+  local k
+  for k in TSMB_TASK_NAME TSMB_SKIP_PULL TSMB_NO_START TSMB_FULL_SETUP \
+           TSMB_SETUP_NOPAUSE TSMB_UPDATE_NOPAUSE; do
+    if [[ -v "$k" ]]; then
+      share+=("$k")
+    fi
+  done
+
+  local wslenv_extra=""
+  if [[ ${#share[@]} -gt 0 ]]; then
+    local joined
+    joined="$(IFS=:; echo "${share[*]}")"
+    # Append /u to each name: VAR1/u:VAR2/u
+    wslenv_extra="${joined//://u:}/u"
+  fi
+
+  (
+    cd "$linux_dir" || exit 1
+    if [[ -n "$wslenv_extra" ]]; then
+      if [[ -n "${WSLENV:-}" ]]; then
+        export WSLENV="${WSLENV}:${wslenv_extra}"
+      else
+        export WSLENV="$wslenv_extra"
+      fi
+    fi
+    # Relative bat path; cwd is already the Windows project root (drive letter).
+    cmd.exe /c "$bat_rel"
+  )
+}

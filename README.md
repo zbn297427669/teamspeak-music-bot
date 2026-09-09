@@ -262,6 +262,8 @@ sqlite3 data/tsmusicbot.db "UPDATE users SET passwordHash='<paste-hash-here>' WH
 
 WSL 里可直接：`./scripts/update.sh`。若 **git 在 WSL、bot 跑在 Windows 另一目录**，复制并编辑 `deploy.windows.env`（见 `deploy.windows.env.example`），再跑 `update.sh`。详见 [Windows 开机自启与升级](docs/WINDOWS_AUTOSTART.md)。
 
+版本号：导航栏 Logo 下方与 **设置 → 关于** 会显示当前版本（优先 `git describe`，WSL 同步后无 `.git` 时用同步戳 / `.tsmusicbot-version.json`）。也可用环境变量 `TSMB_VERSION` 覆盖。接口：`GET /api/health`。
+
 `data\`（配置 / 数据库 / Cookie）会原地保留，**不要**用 zip 整包覆盖项目目录。任务名默认 `TSMusicBot`；详见 [Windows 开机自启与升级](docs/WINDOWS_AUTOSTART.md)。
 
 **手动步骤：**

@@ -1,12 +1,10 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
 chcp 65001 >nul
 title TSMusicBot Stop
 
-:: ============================================================
-::  Stop TSMusicBot (scheduled task + node process for this tree)
-::  Optional: set TSMB_TASK_NAME if your task is not "TSMusicBot"
-:: ============================================================
+:: Stop TSMusicBot (scheduled task + node for this tree)
+:: Optional: TSMB_TASK_NAME (default TSMusicBot)
 
 cd /d "%~dp0.." || (
     echo [FATAL] Cannot change to project directory.
@@ -14,16 +12,19 @@ cd /d "%~dp0.." || (
 )
 set "PROJECT_ROOT=%cd%"
 
+if "%TSMB_TASK_NAME%"=="" if exist ".tsmusicbot-task-name" (
+    set /p TSMB_TASK_NAME=<.tsmusicbot-task-name
+)
 if "%TSMB_TASK_NAME%"=="" set "TSMB_TASK_NAME=TSMusicBot"
+for /f "delims=" %%a in ("%TSMB_TASK_NAME%") do set "TSMB_TASK_NAME=%%a"
 
 echo ============================================
 echo   TSMusicBot - Stop
 echo   Project: %PROJECT_ROOT%
 echo   Task:    %TSMB_TASK_NAME%
 echo ============================================
-echo.
+echo/
 
-:: 1) Stop scheduled task if present
 schtasks /Query /TN "%TSMB_TASK_NAME%" >nul 2>&1
 if not errorlevel 1 (
     echo Stopping scheduled task "%TSMB_TASK_NAME%"...
@@ -38,7 +39,6 @@ if not errorlevel 1 (
     echo        If your task has another name: set TSMB_TASK_NAME=YourName
 )
 
-:: 2) Stop node processes whose command line is this project's dist\index.js
 echo Stopping node process for this project (if any)...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$root = [System.IO.Path]::GetFullPath('%PROJECT_ROOT%');" ^
@@ -53,6 +53,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "if ($n -gt 0) { Write-Host ('[OK] Stopped ' + $n + ' node process(es).') }" ^
   "else { Write-Host '[INFO] No matching node process found.' }"
 
-echo.
-echo Done. data\ was not touched.
+echo/
+echo Done. data/ was not touched.
 exit /b 0

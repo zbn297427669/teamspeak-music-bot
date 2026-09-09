@@ -180,6 +180,10 @@ cd ~/projects/.../teamspeak-music-bot   # 你的 WSL git 目录
 
 流程：**git pull（WSL）→ 停 Windows bot → 同步源码到 Windows 目录 → Windows 智能重建 → 重启计划任务**。
 
+> **WSL 调用 `cmd.exe` 注意：** 必须先进入 `/mnt/d/...` 再跑 bat。若出现 `UNC 路径不受支持` / `文件名、目录名或卷标语法不正确`，说明还在用旧脚本；拉最新脚本后重跑 `./scripts/update.sh`。
+>
+> **`.bat` 必须是 CRLF 换行：** 从 WSL（LF）直接同步会导致 `elayedexpansion 不是内部命令`、并弹出「输入新日期」。仓库已用 `.gitattributes` + 同步后自动转换；若仍卡住，先关掉那个日期提示窗口（文件会被它锁住），再重跑更新。
+
 同步**不会覆盖** Windows 上的：
 
 - `data/`（配置、数据库、Cookie）
@@ -210,7 +214,7 @@ cd ~/projects/.../teamspeak-music-bot   # 你的 WSL git 目录
 | 配置项 / 变量 | 作用 |
 |---|---|
 | `TSMB_WIN_DIR`（`deploy.windows.env`） | Windows 运行目录（可与 WSL 路径/文件夹名不同） |
-| `TSMB_TASK_NAME` | 计划任务名（默认 `TSMusicBot`） |
+| `TSMB_TASK_NAME` | 计划任务名（写入 Windows 的 `.tsmusicbot-task-name`，避免中文经 WSLENV 丢失） |
 | `TSMB_SKIP_PULL=1` | 跳过 `git pull` |
 | `TSMB_NO_START=1` | 更新后不自动启动任务 |
 | `TSMB_FULL_SETUP=1` | 强制完整 `setup`（最稳、最慢） |
