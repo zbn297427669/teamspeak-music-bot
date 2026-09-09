@@ -3,10 +3,12 @@ set -euo pipefail
 
 # One-click update for Linux / WSL.
 #
-# Split deploy (git in WSL, bot in another Windows folder):
+# 【WSL → Windows 桥接】（迁独立 Linux 服务器后可忽略）:
 #   cp deploy.windows.env.example deploy.windows.env
 #   edit TSMB_WIN_DIR / TSMB_TASK_NAME
 #   ./scripts/update.sh
+#
+# 【Linux 服务器】不要配置 TSMB_WIN_DIR；本脚本走本机 git pull + 智能重建 + systemd。
 #
 # Modes (first match):
 # 1) TSMB_WIN_DIR from deploy.windows.env → pull → sync → Windows build

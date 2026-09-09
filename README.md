@@ -262,6 +262,8 @@ sqlite3 data/tsmusicbot.db "UPDATE users SET passwordHash='<paste-hash-here>' WH
 
 WSL 里可直接：`./scripts/update.sh`。若 **git 在 WSL、bot 跑在 Windows 另一目录**，复制并编辑 `deploy.windows.env`（见 `deploy.windows.env.example`），再跑 `update.sh`。详见 [Windows 开机自启与升级](docs/WINDOWS_AUTOSTART.md)。
 
+> **WSL 桥接专用（迁 Linux 服务器用不上）：** `deploy.windows.env`、`scripts/sync-to-windows.sh`、`scripts/lib/deploy-env.sh`，以及 `update.sh`/`stop.sh` 里转调 Windows `.bat` 的分支。以后上 Linux 用 `install.sh` / systemd 或 Docker，只迁 `data/` 即可。对照表见 [文档：哪些是 WSL→Windows 专用](docs/WINDOWS_AUTOSTART.md#哪些是wsl--windows专用迁-linux-服务器用不上)。
+
 版本号：导航栏 Logo 下方与 **设置 → 关于** 会显示当前版本（优先 `git describe`，WSL 同步后无 `.git` 时用同步戳 / `.tsmusicbot-version.json`）。也可用环境变量 `TSMB_VERSION` 覆盖。接口：`GET /api/health`。
 
 `data\`（配置 / 数据库 / Cookie）会原地保留，**不要**用 zip 整包覆盖项目目录。任务名默认 `TSMusicBot`；详见 [Windows 开机自启与升级](docs/WINDOWS_AUTOSTART.md)。
@@ -309,6 +311,8 @@ docker-compose up -d --build
 > 数据（数据库、Cookie、日志）保存在 Docker 命名卷 `tsmusicbot-data` 中，更新不会丢失。
 
 ### Linux systemd 用户
+
+> 从 Windows/WSL 迁过来时：只需带上 **`data/`**，用 `scripts/install.sh` 重装；**不要**带 `deploy.windows.env` 或 Windows 的 `node_modules`/`bin`。WSL 桥接相关文件说明见 [WINDOWS_AUTOSTART.md](docs/WINDOWS_AUTOSTART.md#哪些是wsl--windows专用迁-linux-服务器用不上)。
 
 ```bash
 # 停止服务
@@ -513,12 +517,13 @@ teamspeak-music-bot/
 ├── scripts/                    # 部署脚本
 │   ├── setup.bat               # Windows 首次安装
 │   ├── update.bat              # Windows 一键升级（停 bot → git pull → setup → 重启任务）
-│   ├── update.sh               # Linux/WSL 一键升级（支持同步到独立 Windows 目录）
-│   ├── sync-to-windows.sh      # WSL → Windows 源码同步（不覆盖 data/node_modules）
+│   ├── update.sh               # Linux 本机升级；在 WSL 也可桥接到 Windows（见下）
+│   ├── sync-to-windows.sh      # 【仅 WSL→Windows】源码同步（迁 Linux 服务器不用）
+│   ├── lib/deploy-env.sh       # 【仅 WSL→Windows】读 deploy.windows.env / 调 cmd.exe
 │   ├── stop.bat                # Windows 停止计划任务 / 本目录 node
-│   ├── stop.sh                 # Linux/WSL 停止（WSL 下可转调 stop.bat）
+│   ├── stop.sh                 # Linux 本机停止；WSL 下可转调 stop.bat
 │   ├── start.bat               # Windows 启动脚本
-│   ├── install.sh              # Linux 一键安装 + systemd 服务
+│   ├── install.sh              # Linux 一键安装 + systemd 服务（服务器推荐）
 │   └── docker/                 # Docker 部署文件
 │       ├── Dockerfile
 │       └── docker-compose.yml

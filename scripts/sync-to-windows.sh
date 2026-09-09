@@ -2,6 +2,7 @@
 set -euo pipefail
 
 # Sync WSL git working tree → Windows runtime directory.
+# 【仅 WSL → Windows 桥接】迁到独立 Linux 服务器后不需要本脚本。
 # NEVER overwrites Windows: data/, node_modules/, dist/, bin/
 #
 # Config: deploy.windows.env  (see deploy.windows.env.example)

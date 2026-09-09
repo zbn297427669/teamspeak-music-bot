@@ -4,6 +4,7 @@ set -euo pipefail
 # Stop TSMusicBot.
 # - Native Linux: systemd unit (default tsmusicbot) + matching node process
 # - WSL + Windows Task Scheduler: delegates to stop.bat via cmd.exe
+#   （【仅 WSL 桥接】迁独立 Linux 服务器后不会走这条路径）
 # - Split deploy: use TSMB_WIN_DIR / deploy.windows.env
 #
 # Env:

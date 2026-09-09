@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Shared loader for WSL → Windows deploy settings.
+# 【仅 WSL → Windows 桥接】迁到独立 Linux 服务器后不需要本文件 / deploy.windows.env。
 # Prefer: already-exported env > deploy.windows.env > legacy .windows-deploy
 #
 # shellcheck shell=bash

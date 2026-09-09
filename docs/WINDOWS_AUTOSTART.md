@@ -145,13 +145,39 @@ Get-ScheduledTaskInfo -TaskName "TSMusicBot"
 | Linux | `scripts/install.sh` → systemd `tsmusicbot` |
 | Docker | `restart:` 策略（见 `scripts/docker/docker-compose.yml`） |
 
+### 哪些是「WSL → Windows」专用（迁 Linux 服务器用不上）
+
+当前若在 **WSL 管 git、Windows 跑 bot**，下面这些只服务这种桥接；**搬到独立 Linux 服务器后可以整段忽略**（不必拷贝、不必配置）：
+
+| 项目 | 说明 |
+|---|---|
+| `deploy.windows.env` / `deploy.windows.env.example` | Windows 运行目录、计划任务名 |
+| `.windows-deploy` | 旧版单行路径，同上 |
+| `scripts/sync-to-windows.sh` | 把 WSL 仓库同步到 `/mnt/...` Windows 目录 |
+| `scripts/lib/deploy-env.sh` | 读上述配置、经 `cmd.exe` 调 `.bat` |
+| `update.sh` / `stop.sh` 里的 **WSL / Windows 分支** | 检测 WSL、`TSMB_WIN_DIR`、转调 `update.bat`/`stop.bat` |
+| Windows 运行目录上的 `.tsmusicbot-synced-from-wsl`、`.tsmusicbot-task-name`、`.tsmusicbot-version.json` | 同步/任务名/无 git 时的版本戳 |
+
+**迁 Linux 服务器时真正要用的：**
+
+| 保留 / 使用 | 说明 |
+|---|---|
+| 业务代码 + `data/` | 配置、库、Cookie；**不要**带 Windows 的 `node_modules`/`dist`/`bin` |
+| `scripts/install.sh` | 一键装依赖 + systemd |
+| `scripts/setup.sh` / `npm start` | 或手动安装 |
+| `scripts/update.sh` 的 **本机 Linux 分支** | 无 `TSMB_WIN_DIR`、非 WSL 时走 `git pull` + 智能重建 + systemd |
+| `scripts/stop.sh` 的 **本机 Linux 分支** | 停 systemd / node |
+| Docker（可选） | `scripts/docker/` |
+
+迁机时：**不要**带上 `deploy.windows.env`；在服务器上重新 `install.sh`（或 Docker），只迁 `data/`。
+
 ---
 
 ## 升级代码与数据保留
 
 ### 一键更新（推荐）
 
-#### 场景 A：WSL 有 git，Windows 在别的目录跑 bot（你现在的需求）
+#### 场景 A：WSL 有 git，Windows 在别的目录跑 bot（WSL 桥接，非 Linux 服务器）
 
 ```
 WSL 仓库（只管代码 / git）
