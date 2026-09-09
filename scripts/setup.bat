@@ -324,6 +324,8 @@ echo   2. Open: http://localhost:3000
 echo.
 echo Setup log: %LOG_FILE%
 echo.
+:: Non-interactive when called from scripts\update.bat (TSMB_SETUP_NOPAUSE=1)
+if /i "%TSMB_SETUP_NOPAUSE%"=="1" exit /b 0
 pause
 exit /b 0
 

@@ -9,5 +9,8 @@ cookies/
 .worktrees/
 .claude/
 setup.log
+update.log
+.windows-deploy
+deploy.windows.env
 /bin/
 scripts/navbar_bigger.png

@@ -77,6 +77,8 @@
 > 之后 `setup.bat` 会运行 `npm install` 安装所有依赖（包括内置 FFmpeg），按当前 Node 版本准备好原生模块，最后构建项目。之后每次只需双击 `start.bat` 启动。
 >
 > **Node 20 已不再支持**：better-sqlite3 从 12.10.0 起不再发布它那个 ABI（115）的预编译包，装起来必须先备好 Python + C++ 构建工具（[#152](https://github.com/ZHANGTIANYAO1/teamspeak-music-bot/issues/152)）。Node 24 及更新的大版本能用，但 @discordjs/opus 0.10.0 同样没有 Node 24（ABI 137）的预编译包，安装脚本会改用源码编译，需要构建工具且耗时更久——所以推荐 22 LTS。**装好之后不要再换 Node 大版本**：原生模块只能在编译它的那个版本上加载，换版本后必须重新运行 `setup.bat`（脚本会自动检测并重装，见下方常见问题）。
+>
+> **开机自启与日常升级**：见 [Windows 开机自启与升级](docs/WINDOWS_AUTOSTART.md)。以后升级请双击 `scripts\update.bat`（原地 `git pull`，保留 `data\`），不要用 zip 整包替换目录。
 
 ### 方式二：手动安装（所有系统）
 
@@ -250,11 +252,25 @@ sqlite3 data/tsmusicbot.db "UPDATE users SET passwordHash='<paste-hash-here>' WH
 
 ### Windows 用户
 
+**推荐（git 安装 + 任务计划开机自启）：**
+
 ```
-1. 双击 scripts\stop.bat 停止运行中的机器人（或手动关闭窗口）
-2. 在项目目录打开命令行，执行 git pull
+1. 双击 scripts\update.bat
+   （停 bot → git pull → 智能重建 → 再启动；多数情况复用 node_modules，只 npm run build）
+2. 浏览器打开 http://localhost:3000 确认
+```
+
+WSL 里可直接：`./scripts/update.sh`。若 **git 在 WSL、bot 跑在 Windows 另一目录**，复制并编辑 `deploy.windows.env`（见 `deploy.windows.env.example`），再跑 `update.sh`。详见 [Windows 开机自启与升级](docs/WINDOWS_AUTOSTART.md)。
+
+`data\`（配置 / 数据库 / Cookie）会原地保留，**不要**用 zip 整包覆盖项目目录。任务名默认 `TSMusicBot`；详见 [Windows 开机自启与升级](docs/WINDOWS_AUTOSTART.md)。
+
+**手动步骤：**
+
+```
+1. 双击 scripts\stop.bat（或结束计划任务 / 关闭窗口）
+2. 在项目目录执行 git pull
 3. 双击 scripts\setup.bat 重新安装依赖并构建
-4. 双击 scripts\start.bat 启动
+4. 启动计划任务，或双击 scripts\start.bat
 ```
 
 ### 手动安装用户（所有系统）
@@ -494,6 +510,11 @@ teamspeak-music-bot/
 │   └── styles/                 # SCSS 主题变量（深色/浅色）
 ├── scripts/                    # 部署脚本
 │   ├── setup.bat               # Windows 首次安装
+│   ├── update.bat              # Windows 一键升级（停 bot → git pull → setup → 重启任务）
+│   ├── update.sh               # Linux/WSL 一键升级（支持同步到独立 Windows 目录）
+│   ├── sync-to-windows.sh      # WSL → Windows 源码同步（不覆盖 data/node_modules）
+│   ├── stop.bat                # Windows 停止计划任务 / 本目录 node
+│   ├── stop.sh                 # Linux/WSL 停止（WSL 下可转调 stop.bat）
 │   ├── start.bat               # Windows 启动脚本
 │   ├── install.sh              # Linux 一键安装 + systemd 服务
 │   └── docker/                 # Docker 部署文件
