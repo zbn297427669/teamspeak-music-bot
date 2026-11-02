@@ -16,24 +16,27 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/lib/deploy-env.sh"
 tsmb_load_deploy_config "$PROJECT_DIR"
 
+# rsync exclude patterns without a leading slash match at ANY depth, so a bare
+# 'data/' would also drop src/data/ — the runtime-data exclusion is anchored to
+# the repo root instead. Same reasoning for every other runtime-only path.
 RSYNC_EXCLUDES=(
-  --exclude '.git/'
-  --exclude 'node_modules/'
-  --exclude 'web/node_modules/'
-  --exclude 'data/'
-  --exclude 'dist/'
-  --exclude 'web/dist/'
-  --exclude 'bin/'
-  --exclude 'setup.log'
-  --exclude 'update.log'
-  --exclude 'deploy.windows.env'
-  --exclude '.windows-deploy'
-  --exclude '.tsmusicbot-version.json'
-  --exclude '.tsmusicbot-synced-from-wsl'
-  --exclude '.tsmusicbot-task-name'
-  --exclude '.superpowers/'
-  --exclude '.worktrees/'
-  --exclude '.claude/'
+  --exclude '/.git/'
+  --exclude '/node_modules/'
+  --exclude '/web/node_modules/'
+  --exclude '/data/'
+  --exclude '/dist/'
+  --exclude '/web/dist/'
+  --exclude '/bin/'
+  --exclude '/setup.log'
+  --exclude '/update.log'
+  --exclude '/deploy.windows.env'
+  --exclude '/.windows-deploy'
+  --exclude '/.tsmusicbot-version.json'
+  --exclude '/.tsmusicbot-synced-from-wsl'
+  --exclude '/.tsmusicbot-task-name'
+  --exclude '/.superpowers/'
+  --exclude '/.worktrees/'
+  --exclude '/.claude/'
   --exclude '*.db'
 )
 
@@ -84,10 +87,12 @@ if command -v rsync >/dev/null 2>&1; then
   rsync "${rsync_opts[@]}" "$src"/ "$dst"/
 else
   echo "[WARN] rsync not found — using tar fallback (no --delete)."
-  tar -C "$src" --exclude='.git' --exclude='node_modules' --exclude='web/node_modules' \
-    --exclude='data' --exclude='dist' --exclude='web/dist' --exclude='bin' \
-    --exclude='setup.log' --exclude='update.log' --exclude='deploy.windows.env' \
-    --exclude='.windows-deploy' \
+  # GNU tar, like rsync, matches an unanchored --exclude at any depth; the
+  # leading './' anchors each pattern to the archive root so src/data/ survives.
+  tar -C "$src" --exclude='./.git' --exclude='./node_modules' --exclude='./web/node_modules' \
+    --exclude='./data' --exclude='./dist' --exclude='./web/dist' --exclude='./bin' \
+    --exclude='./setup.log' --exclude='./update.log' --exclude='./deploy.windows.env' \
+    --exclude='./.windows-deploy' \
     -cf - . | tar -C "$dst" -xf -
 fi
 
