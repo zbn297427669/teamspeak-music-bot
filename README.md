@@ -284,6 +284,8 @@ sqlite3 data/tsmusicbot.db "UPDATE users SET passwordHash='<paste-hash-here>' WH
 
 WSL 里可直接：`./scripts/update.sh`。若 **git 在 WSL、bot 跑在 Windows 另一目录**，复制并编辑 `deploy.windows.env`（见 `deploy.windows.env.example`），再跑 `update.sh`。详见 [Windows 开机自启与升级](docs/WINDOWS_AUTOSTART.md)。
 
+> **纯 Windows 部署（不需要 WSL）：** 如果 git 仓库在另一个 Windows 目录、bot 跑在独立运行目录，用 `scripts\deploy.ps1`（或双击 `scripts\deploy.bat`）：同步源码（保留 `data\`、`node_modules\`、`dist\`、`web\dist\`）→ `npm run build` → 刷新 `.tsmusicbot-version.json` → 重启计划任务 → 校验 `/api/health`。目标目录读取 `-Target` / `TSMB_WIN_DIR` / `deploy.windows.env`，任务名读取 `TSMB_TASK_NAME` / 运行目录的 `.tsmusicbot-task-name`。常用参数：`-Pull`（先 `git pull --ff-only`）、`-SkipBuild`、`-NoRestart`、`-AllowDirty`、`-Mirror`（删除运行目录里源中已不存在的文件）。例如：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Pull`。
+
 > **WSL 桥接专用（迁 Linux 服务器用不上）：** `deploy.windows.env`、`scripts/sync-to-windows.sh`、`scripts/lib/deploy-env.sh`，以及 `update.sh`/`stop.sh` 里转调 Windows `.bat` 的分支。以后上 Linux 用 `install.sh` / systemd 或 Docker，只迁 `data/` 即可。对照表见 [文档：哪些是 WSL→Windows 专用](docs/WINDOWS_AUTOSTART.md#哪些是wsl--windows专用迁-linux-服务器用不上)。
 
 版本号：导航栏 Logo 下方与 **设置 → 关于** 会显示当前版本（优先 `git describe`，WSL 同步后无 `.git` 时用同步戳 / `.tsmusicbot-version.json`）。也可用环境变量 `TSMB_VERSION` 覆盖。接口：`GET /api/health`。
@@ -589,6 +591,8 @@ teamspeak-music-bot/
 ├── scripts/                    # 部署脚本
 │   ├── setup.bat               # Windows 首次安装
 │   ├── update.bat              # Windows 一键升级（停 bot → git pull → setup → 重启任务）
+│   ├── deploy.ps1              # 纯 Windows 部署（源码在别的目录：同步 → 构建 → 版本戳 → 重启）
+│   ├── deploy.bat              # deploy.ps1 的双击包装
 │   ├── update.sh               # Linux 本机升级；在 WSL 也可桥接到 Windows（见下）
 │   ├── sync-to-windows.sh      # 【仅 WSL→Windows】源码同步（迁 Linux 服务器不用）
 │   ├── lib/deploy-env.sh       # 【仅 WSL→Windows】读 deploy.windows.env / 调 cmd.exe
