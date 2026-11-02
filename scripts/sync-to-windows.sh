@@ -48,6 +48,44 @@ dst="$(tsmb_win_dir_linux)" || {
   exit 1
 }
 
+# ─── Exclude-rule self-check ────────────────────────────────────────────────
+# A source directory whose name collides with a runtime-only excluded path is
+# the failure mode this guards. `src/data/` shipped unsynced for weeks: rsync
+# reported success while every file under it was dropped, and the failure only
+# surfaced later as "Cannot find module .../data/foo.js" during the Windows
+# build. Verify the rules still deliver src/data/ before touching the target.
+tsmb_assert_excludes_allow_src() {
+  local needed="src/data"
+  [[ -d "$src/$needed" ]] || return 0
+
+  # A dry run needs a destination rsync can stat; /dev/null is not a directory,
+  # so use a throwaway dir and throw the listing away afterwards.
+  local listed probe
+  if command -v rsync >/dev/null 2>&1; then
+    probe="$(mktemp -d)"
+    listed="$(rsync -a -n --out-format='%n' "${RSYNC_EXCLUDES[@]}" "$src/" "$probe/" 2>/dev/null || true)"
+    rm -rf "$probe"
+  else
+    # tar fallback: list what the archive would contain.
+    listed="$(tar -C "$src" --exclude='./.git' --exclude='./node_modules' \
+      --exclude='./web/node_modules' --exclude='./data' --exclude='./dist' \
+      --exclude='./web/dist' --exclude='./bin' -cf - . 2>/dev/null | tar -tf - 2>/dev/null || true)"
+  fi
+
+  if [[ -z "$listed" ]]; then
+    echo "[WARN] Exclude self-check could not list files — skipping."
+    return 0
+  fi
+  if ! grep -q "^$needed/" <<<"$listed"; then
+    echo "[ERROR] Exclude rules drop $needed/ — source files would never reach Windows."
+    echo "        An rsync --exclude pattern without a leading '/' matches at ANY"
+    echo "        depth: '/data/' is the repo-root runtime dir, 'data/' also kills"
+    echo "        src/data/. Restore the anchored form in RSYNC_EXCLUDES."
+    exit 1
+  fi
+}
+tsmb_assert_excludes_allow_src
+
 if [[ ! -d "$dst" ]]; then
   echo "[INFO] Creating Windows deploy dir: $dst"
   mkdir -p "$dst"
