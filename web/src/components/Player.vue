@@ -3,8 +3,17 @@
     <Queue :open="showQueue" @close="showQueue = false" />
 
     <div class="player-bar frosted-glass">
-      <!-- Progress bar (read-only display; seek interaction gated on transport / canTransport) -->
+      <!-- A live stream has no timeline. The strip stays as the track's
+           background, but the "直播" label lives in the center cluster (below)
+           next to the play-mode icon rather than floating above the play
+           button, where it collided with the transport controls. -->
       <div
+        v-if="isLive"
+        class="progress-bar-container live-strip"
+        :title="'直播流 · 已收听 ' + formatTime(currentElapsed)"
+      />
+      <div
+        v-else
         class="progress-bar-container"
         :class="{ 'no-seek': !canTransport }"
         ref="progressBarRef"
@@ -49,9 +58,13 @@
           <button v-if="canSkip" class="control-btn" @click="store.next()">
             <Icon icon="mdi:skip-next" />
           </button>
-          <button v-if="canModeCtl" class="control-btn mode-btn" @click="cycleMode" :title="modeLabel">
+          <button v-if="canModeCtl" class="control-btn mode-btn" @click="cycleMode" :title="isLive ? '直播流 · 播放模式' : modeLabel">
             <Icon :icon="modeIcon" />
-            <span class="mode-label">{{ modeLabel }}</span>
+            <!-- A live stream replaces the mode word with "直播": the mode still
+                 applies (it decides which station plays next) but saying
+                 "顺序" beside a never-ending stream is misleading. -->
+            <span v-if="isLive" class="live-badge"><span class="live-pip" />直播</span>
+            <span v-else class="mode-label">{{ modeLabel }}</span>
           </button>
         </template>
         <span class="time-display time-total">{{ formatTime(currentSong?.duration ?? 0) }}</span>
@@ -104,6 +117,10 @@ const canControl = computed(() => can('player.control'));
 const canTransport = computed(() => can('player.control') || guestCan('transport'));
 const canSkip = computed(() => can('player.control') || guestCan('skip'));
 const canModeCtl = computed(() => can('player.control') || guestCan('playMode'));
+/** Endless live stream: no timeline, so the progress bar becomes a live strip. */
+const isLive = computed(
+  () => currentSong.value?.live === true || activeBot.value?.isLive === true,
+);
 
 const store = usePlayerStore();
 const activeBot = computed(() => store.activeBot);
@@ -260,6 +277,8 @@ function cycleMode() {
   display: flex;
   align-items: center;
   padding: 0;
+  // A live stream has no timeline to scrub.
+  &.live-strip { cursor: default; }
 
   &:hover {
     .progress-bar-bg { height: 4px; }
@@ -273,6 +292,45 @@ function cycleMode() {
       .progress-bar-thumb { opacity: 0; transform: scale(0); }
     }
   }
+}
+
+// The live strip keeps a hairline so the bar does not look broken; the actual
+// "直播" label now sits in the transport cluster.
+.live-strip::before {
+  content: '';
+  position: absolute;
+  inset: 50% 0 auto;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--color-primary), transparent);
+  opacity: 0.45;
+}
+
+// "直播" pill, rendered inside the mode button so the status lives with the
+// transport controls instead of floating above the play button.
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--color-primary-15);
+  color: var(--color-primary);
+  font-size: 10px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.04em;
+  line-height: 16px;
+}
+
+.live-pip {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  50% { opacity: 0.3; }
 }
 
 .progress-bar-bg {

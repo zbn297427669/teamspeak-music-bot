@@ -48,9 +48,11 @@ API Key 没有自动到期时间,可在设置页随时吊销。删除账户会�
 
 ### 平台(platform)取值
 
-`netease` / `qq` / `bilibili` / `youtube` / `kugou` / `jellyfin` / `local` / `spotify`
+`netease` / `qq` / `bilibili` / `youtube` / `kugou` / `jellyfin` / `local` / `spotify` / `radio`
 
 省略 `platform` 时使用设置页配置的默认音源;已禁用的音源返回 `400 音源未启用`。
+
+`radio`(网络电台)与其他音源有一处重要差别:它的歌曲是**直播流**,`duration` 恒为 `0`、带 `"live": true`、不可 seek。播放状态 `GET /api/player/:botId/status` 会返回 `isLive: true`;此时 `elapsed` 表示「已收听时长」,`effectiveDuration` 为 `0`,前端不渲染进度条。电台掉线时后端会重连**同一个台**(最多 5 次、逐次退避),而不是跳到下一首。
 
 ### 点歌归属
 
@@ -275,6 +277,42 @@ curl -X POST -H "X-API-Key: $KEY" -H "x-filename: theme.mp3" \
   -H "Content-Type: application/octet-stream" \
   --data-binary @theme.mp3 http://127.0.0.1:3000/api/music/local/upload
 ```
+
+## 网络电台 /api/radio
+
+需要设置页开启 `radio`(默认关闭),否则所有端点返回 `403 电台音源未启用`。目录数据来自公开的 [radio-browser.info](https://www.radio-browser.info/),无需登录。
+
+| 方法 | 路径 | 参数 | 返回 |
+|------|------|------|------|
+| GET | `/stations` | `q`/`name`、`country`、`language`、`tags`(逗号分隔)、`codec`、`bitrateMin`、`order`(默认 `votes`)、`reverse`、`hideBroken`、`limit`(1–100,默认 40)、`offset` | `{ stations: Song[] }`;无任何条件时返回热门电台 |
+| GET | `/facets` | — | `{ tags, countries, languages }`(各带 `stationcount`) |
+| GET | `/stations/:id` | — | `{ station: Song }`,无则 404 |
+| GET | `/now-playing` | `id`(必填) | `{ stationId, title, artist, song, fromStream, fetchedAt }`;服务端缓存 15 秒 |
+| GET | `/local` | — | `{ stations: Song[], groups: [{ name, count }] }`(仅**导入的**电台;`Song` 额外带 `group`、`local: true`、`favorite`) |
+| POST | `/local/import` | `{ playlist?, url?, name?, group?, cover?, dryRun? }` — **`bot.manage`** | `{ added, updated, total, imported, skipped, groups }`;`dryRun` 返回 `{ preview, skipped, wouldImport }` |
+| PUT | `/local/:id/cover` | `{ cover }` — **`bot.manage`** | `{ ok, stations }` |
+| DELETE | `/local/:id` | — **`bot.manage`** | `{ ok, groups }` |
+| DELETE | `/local` | — **`bot.manage`** | `{ ok, removed }`(清空全部导入) |
+| GET | `/status` | `id` 或 `url`,可重复,单次 ≤ 60;`refresh=1` 跳过 60 秒缓存重新探测 | `{ statuses: [{ id, url, online, state: "online"\|"offline"\|"unknown", httpStatus, latencyMs, checkedAt, fromDirectory }] }` |
+| GET | `/favorites` | — | `{ favorites: Song[] }`(置顶的收藏电台,最近收藏在前;每项带 `group`、`local`、`favorite: true`) |
+| POST | `/favorites` | `{ station: Song, favorite: boolean }` — 非游客 | `{ ok, favorited, created, favorites: Song[] }`;收藏目录电台时服务端会用 `station.id` 回查目录补全流地址 |
+
+导入相关说明:
+
+- `playlist` 是原始 M3U/M3U8 文本,`url` 是单个流地址;两者可同时提供(先导入列表再导入单条)。同一流地址重复导入只更新,不重复添加。
+- 只接受 `http(s)`,且**拒绝内网 / 本机地址**(`localhost`、`127.0.0.0/8`、`10/8`、`172.16/12`、`192.168/16`、`169.254/16`、`100.64/10`、IPv6 回环 / ULA / 链路本地)。因为这些地址最终由**服务器**去连接;被拒绝的条目会出现在 `skipped` 里并附原因。
+- 导入的电台存在 `data/local-radio.json`(可手工编辑、重启后保留)。已存在的内网电台仍可播放,限制只作用于新导入。
+
+收藏相关说明:
+
+- 收藏与导入共用同一份 `data/local-radio.json`:收藏是行上的 `favorite` 标记,**不会**产生重复电台;从目录收藏的电台会把整条记录落盘(`imported: false`),因此目录不可达时收藏仍能播放。
+- `GET /local` 只返回 `imported` 的行 —— 目录收藏不属于「我的电台」;若该收藏本身也是导入的电台,则照常出现在 `/local` 并带 `favorite: true`。
+- 取消收藏一条「仅收藏」记录会把它从文件里删掉;取消收藏一个导入的电台只清标记,导入本身保留。
+
+在线状态说明:
+
+- 探测方式:对解析出的流地址发 `GET` 并带 `Range: bytes=0-0`,读到第一个音频字节即视为 `online`,4xx/5xx 为 `offline`,超时 / DNS 失败为 `unknown`;单次 6 秒超时、并发 6。
+- 结果按 URL 缓存 60 秒;页面加载时自动检测一批(≤40),「检测在线」按钮用 `refresh=1` 强制重新探测当前筛选结果(可超过 60 个,前端按 40 一批分次请求)。
 
 ---
 

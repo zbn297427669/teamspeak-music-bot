@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Readable, PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
 import { spawn, type ChildProcess } from "node:child_process";
+import * as childProcess from "node:child_process";
 import pino from "pino";
 import { buildFfmpegArgs, shouldUsePowerShellDownload, cleanupTempDir, shouldEndOnStall, volumeToFactor, AudioPlayer } from "./player.js";
 import type { Logger } from "../logger.js";
@@ -1067,6 +1068,56 @@ describe("AudioPlayer stall/EOF end-detection is gated on playing state (R3-4)",
       player.stop();
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+describe("AudioPlayer live (radio) mode", () => {
+  it("isLive() is false by default and after stop()", () => {
+    const player = new AudioPlayer(silentLogger);
+    expect(player.isLive()).toBe(false);
+    player.stop();
+    expect(player.isLive()).toBe(false);
+  });
+
+  it("seek() is a no-op on a live stream (no -ss respawn)", () => {
+    const player = new AudioPlayer(silentLogger);
+    const spawnSpy = vi.spyOn(childProcess, "spawn");
+    try {
+      // A live stream is endless: there is no position to seek to, so seek()
+      // must not tear down and re-spawn ffmpeg with -ss.
+      player.play("http://example.com/live.mp3", 0, 0, true);
+      const callsAfterPlay = spawnSpy.mock.calls.length;
+      expect(() => player.seek(30)).not.toThrow();
+      expect(spawnSpy.mock.calls.length).toBe(callsAfterPlay);
+      expect(player.getState()).toBe("playing");
+    } finally {
+      spawnSpy.mockRestore();
+      player.stop();
+    }
+  });
+
+  it("does not end a live stream on a short buffer stall", async () => {
+    const player = new AudioPlayer(silentLogger);
+    const spawnSpy = vi.spyOn(childProcess, "spawn").mockImplementation(() => {
+      // ffmpeg that stays alive but never produces audio: exactly the network
+      // hiccup that must NOT skip a radio station.
+      const child = new (require("node:events").EventEmitter)() as any;
+      child.stdout = new (require("node:stream").PassThrough)();
+      child.stderr = new (require("node:stream").PassThrough)();
+      child.pid = undefined;
+      return child;
+    });
+    let ended = 0;
+    player.on("trackEnd", () => ended++);
+    try {
+      player.play("http://example.com/live.mp3", 0, 0, true);
+      await wait(1200); // ~60 frames: well past MAX_EMPTY_ATTEMPTS (250ms tick scale)
+      expect(ended).toBe(0);
+      expect(player.getState()).toBe("playing");
+    } finally {
+      spawnSpy.mockRestore();
+      player.stop();
     }
   });
 });

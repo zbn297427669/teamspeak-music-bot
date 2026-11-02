@@ -9,6 +9,7 @@
       <RouterLink to="/" class="nav-link" active-class="active">发现</RouterLink>
       <RouterLink to="/search" class="nav-link" active-class="active">搜索</RouterLink>
       <RouterLink to="/library" class="nav-link" active-class="active">音乐库</RouterLink>
+      <RouterLink to="/radio" class="nav-link" active-class="active">电台</RouterLink>
       <RouterLink to="/history" class="nav-link" active-class="active">播放历史</RouterLink>
       <RouterLink
         v-if="store.savedQueuesEnabled && !session.isGuest.value"

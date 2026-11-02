@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { BotManager } from "../../bot/manager.js";
 import type { BotDatabase } from "../../data/database.js";
-import type { MusicProvider, Song, ArtistSongPage } from "../../music/provider.js";
+import type { MusicProvider, Song, ArtistSongPage, Platform } from "../../music/provider.js";
 import type { Logger } from "../../logger.js";
 import { parseCommand } from "../../bot/commands.js";
 import { requireBotAccess } from "../middleware/requirePermission.js";
@@ -12,6 +12,24 @@ import { supportsPersonalLogin } from "./personal-music.js";
  *  against a pathological catalogue (and against an upstream paging bug). */
 const MAX_ARTIST_QUEUE = 500;
 const ARTIST_QUEUE_PAGE = 100;
+
+/**
+ * Sources whose platform string may be passed straight through from a request.
+ * Anything else falls back to the default source. This was five copies of the
+ * same `platform === "a" || platform === "b" || ...` chain, which meant adding
+ * a source required finding all five.
+ */
+const PLAYABLE_PLATFORMS: ReadonlySet<Platform> = new Set<Platform>([
+  "netease",
+  "qq",
+  "bilibili",
+  "youtube",
+  "local",
+  "kugou",
+  "spotify",
+  "jellyfin",
+  "radio",
+]);
 
 /** Walks every page of an artist's catalogue (best-first, de-duplicated). */
 export async function collectArtistSongs(
@@ -68,6 +86,7 @@ export function createPlayerRouter(
     if (platform === "youtube") return "-y";
     if (platform === "kugou") return "-k";
     if (platform === "jellyfin") return "-j";
+    if (platform === "radio") return "-r";
     // The flag-less default is now the configured default platform (jellyfin
     // unless disabled), so netease needs an explicit flag.
     if (platform === "netease") return "-n";
@@ -152,7 +171,7 @@ export function createPlayerRouter(
         return;
       }
       let provider = bot.getProviderFor(
-        platform === "bilibili" || platform === "qq" || platform === "youtube" || platform === "local" || platform === "kugou" || platform === "jellyfin"
+        PLAYABLE_PLATFORMS.has(platform as Platform)
           ? platform
           : "netease"
       );
@@ -336,7 +355,7 @@ export function createPlayerRouter(
       // Use the bot's own provider lookup — it already knows about youtube,
       // which the router's constructor params did not.
       const provider = bot.getProviderFor(
-        platform === "bilibili" || platform === "qq" || platform === "youtube" || platform === "local" || platform === "kugou" || platform === "jellyfin"
+        PLAYABLE_PLATFORMS.has(platform as Platform)
           ? platform
           : "netease"
       );
@@ -429,7 +448,7 @@ export function createPlayerRouter(
         return;
       }
       const provider = bot.getProviderFor(
-        platform === "bilibili" || platform === "qq" || platform === "youtube" || platform === "local" || platform === "kugou" || platform === "jellyfin"
+        PLAYABLE_PLATFORMS.has(platform as Platform)
           ? platform
           : "netease"
       );
@@ -514,7 +533,7 @@ export function createPlayerRouter(
         return;
       }
       const provider = bot.getProviderFor(
-        platform === "bilibili" || platform === "qq" || platform === "youtube" || platform === "local" || platform === "kugou" || platform === "jellyfin"
+        PLAYABLE_PLATFORMS.has(platform as Platform)
           ? platform
           : "netease"
       );
@@ -750,7 +769,7 @@ export function createPlayerRouter(
         return;
       }
       const provider = bot.getProviderFor(
-        platform === "bilibili" || platform === "qq" || platform === "youtube" || platform === "local" || platform === "kugou" || platform === "jellyfin"
+        PLAYABLE_PLATFORMS.has(platform as Platform)
           ? platform
           : "netease"
       );

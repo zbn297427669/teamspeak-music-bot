@@ -23,6 +23,19 @@ a {
   color: inherit;
 }
 
+// Native <select> dropdowns are painted by the OS/browser, not by us. In dark
+// theme Chromium gave the popup a white surface while `option` inherited
+// `--text-primary` (white), so the list rendered white-on-white and was
+// effectively invisible. Giving <option> an explicit opaque surface + text
+// colour fixes the popup; `color-scheme` only covers the scrollbar/caret.
+// This lives in global.scss because it must apply to every select in the app
+// (Radio filters, Settings, Setup) and scoped styles cannot reach the popup.
+option,
+optgroup {
+  background-color: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
 button {
   border: none;
   background: none;

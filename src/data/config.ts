@@ -72,6 +72,7 @@ export const GATEABLE_PROVIDERS = [
   "bilibili",
   "youtube",
   "kugou",
+  "radio",
 ] as const;
 export type GateableProvider = (typeof GATEABLE_PROVIDERS)[number];
 

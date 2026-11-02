@@ -12,6 +12,8 @@ import type { CookieStore } from "../music/auth.js";
 import type { AvatarStore } from "../data/avatars.js";
 import { createBotRouter } from "./api/bot.js";
 import { createMusicRouter } from "./api/music.js";
+import { createRadioRouter } from "./api/radio.js";
+import type { LocalRadioStore } from "../music/radio-local.js";
 import { createPlayerRouter } from "./api/player.js";
 import { createAuthRouter } from "./api/auth.js";
 import { createSessionRouter } from "./api/session.js";
@@ -56,6 +58,10 @@ export interface WebServerOptions {
   kugouProvider: MusicProvider;
   spotifyProvider: MusicProvider;
   jellyfinProvider: MusicProvider;
+  radioProvider: MusicProvider;
+  /** Operator-imported radio stations (data/local-radio.json). Optional so
+   *  tests that only exercise the directory endpoints can omit it. */
+  radioLocalStore?: LocalRadioStore;
   database: BotDatabase;
   config: BotConfig;
   configPath: string;
@@ -180,7 +186,13 @@ export function createWebServer(options: WebServerOptions): WebServer {
   );
   app.use(
     "/api/music",
-    createMusicRouter(options.neteaseProvider, options.qqProvider, options.bilibiliProvider, logger, options.localProvider, options.config, options.kugouProvider, options.spotifyProvider, options.jellyfinProvider, options.configPath)
+    createMusicRouter(options.neteaseProvider, options.qqProvider, options.bilibiliProvider, logger, options.localProvider, options.config, options.kugouProvider, options.spotifyProvider, options.jellyfinProvider, options.configPath, options.radioProvider)
+  );
+  app.use(
+    "/api/radio",
+    createRadioRouter(options.radioProvider, logger, options.config, {
+      localStore: options.radioLocalStore,
+    }),
   );
   app.use("/api/player", createPlayerRouter(
     options.botManager, logger, options.database,

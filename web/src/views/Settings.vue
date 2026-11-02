@@ -357,6 +357,49 @@
       </div>
     </section>
 
+    <!-- Internet radio — optional, anonymous source backed by the public Radio
+         Browser directory. No account, so the only setting is the enable
+         toggle; the card stays visible while disabled so it can be turned on. -->
+    <section v-if="can('platform.auth')" class="settings-section" v-show="activeCategory === 'music'">
+      <h2 class="section-title">网络电台（可选）</h2>
+
+      <div class="account-card">
+        <div class="account-header">
+          <Icon icon="mdi:radio-tower" class="account-icon" />
+          <div class="account-info">
+            <div class="account-name">网络电台</div>
+            <div class="account-status" :class="{ logged: radioEnabledForm }">
+              {{ radioEnabledForm ? '已启用' : '未启用' }}
+            </div>
+          </div>
+        </div>
+
+        <label class="profile-toggle behavior-toggle spotify-toggle">
+          <div class="profile-toggle-text">
+            <div class="profile-toggle-label">启用网络电台音源</div>
+            <div class="profile-toggle-hint">
+              开启后顶栏出现「电台」页面，可浏览、搜索并播放全球公共网络电台；聊天命令用
+              <code>!play -r &lt;电台名&gt;</code>、<code>!fm -r</code>。数据来自公开目录
+              radio-browser.info，无需登录。默认关闭，点击下方「保存」后生效。
+            </div>
+          </div>
+          <input v-model="radioEnabledForm" type="checkbox" class="profile-toggle-switch" />
+        </label>
+
+        <p class="profile-section-hint">
+          电台是直播流：没有固定时长、不能拖动进度、不会自动跳到下一首。暂停后继续会重新连接到当前直播点。
+        </p>
+
+        <div class="form-actions">
+          <button class="btn-primary" :disabled="radioSaving" @click="saveRadio">
+            {{ radioSaving ? '保存中…' : '保存' }}
+          </button>
+        </div>
+
+        <p v-if="radioMessage" class="spotify-message" :class="`tone-${radioMessageTone}`">{{ radioMessage }}</p>
+      </div>
+    </section>
+
     <!-- Music Account - QR Code Login (platform auth) requires platform.auth.
          Cards for sources disabled via enabledProviders are hidden. -->
     <section v-if="can('platform.auth') && (providerOn('netease') || providerOn('qq') || providerOn('bilibili') || providerOn('kugou'))" class="settings-section" v-show="activeCategory === 'music'">
@@ -1480,6 +1523,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   bilibili: '哔哩哔哩',
   youtube: 'YouTube',
   jellyfin: 'Jellyfin',
+  radio: '网络电台',
 };
 // Empty string = "auto" (follow the fixed priority order); persisted as null.
 const defaultPlatformForm = ref('');
@@ -1538,6 +1582,48 @@ const jellyfinMessageTone = ref<'ok' | 'warn'>('ok');
 const jellyfinEnabledForm = ref(false);
 const enabledProvidersLoaded = ref(false);
 
+// Radio is opt-in exactly like Jellyfin: its "enabled" bit is membership in
+// enabledProviders, and it owns no credentials.
+const radioEnabledForm = ref(false);
+const radioSaving = ref(false);
+const radioMessage = ref('');
+// Its own tone: sharing jellyfin's meant a failed radio save turned a later
+// jellyfin message red (and vice versa).
+const radioMessageTone = ref<'ok' | 'warn'>('ok');
+
+async function saveRadio() {
+  radioSaving.value = true;
+  radioMessage.value = '';
+  try {
+    if (!enabledProvidersLoaded.value) {
+      radioMessageTone.value = 'warn';
+      radioMessage.value = '设置尚未加载完成，请稍后重试';
+      return;
+    }
+    const others = enabledProviders.value.filter((p) => p !== 'radio');
+    const res = await axios.post('/api/bot/settings', {
+      enabledProviders: radioEnabledForm.value ? [...others, 'radio'] : others,
+    });
+    if (Array.isArray(res.data?.enabledProviders)) {
+      enabledProviders.value = res.data.enabledProviders;
+      radioEnabledForm.value = res.data.enabledProviders.includes('radio');
+      store.fetchProviders();
+    }
+    if (res.data && 'defaultPlatform' in res.data) {
+      defaultPlatformForm.value = res.data.defaultPlatform ?? '';
+    }
+    radioMessageTone.value = 'ok';
+    radioMessage.value = radioEnabledForm.value ? '已启用' : '已关闭';
+  } catch (err: any) {
+    radioMessageTone.value = 'warn';
+    radioMessage.value = err?.response?.status === 403
+      ? '没有权限修改设置（需要 bot.manage）'
+      : '保存失败，请稍后重试';
+  } finally {
+    radioSaving.value = false;
+  }
+}
+
 // Populate from the masked GET /api/bot/settings response — secrets never
 // round-trip, only hasPassword/hasApiKey.
 function applyJellyfinConfig(jf: any) {
@@ -1568,6 +1654,7 @@ async function saveJellyfin() {
     if (Array.isArray(res.data?.enabledProviders)) {
       enabledProviders.value = res.data.enabledProviders;
       jellyfinEnabledForm.value = res.data.enabledProviders.includes('jellyfin');
+      radioEnabledForm.value = res.data.enabledProviders.includes('radio');
       enabledProvidersLoaded.value = true;
       // Search bar / home sections / FM cards react without a reload.
       store.fetchProviders();
@@ -1913,6 +2000,7 @@ async function loadIdleTimeout() {
     if (Array.isArray(res.data.enabledProviders)) {
       enabledProviders.value = res.data.enabledProviders;
       jellyfinEnabledForm.value = res.data.enabledProviders.includes('jellyfin');
+      radioEnabledForm.value = res.data.enabledProviders.includes('radio');
       enabledProvidersLoaded.value = true;
     }
     // null (unset) → "" so the select shows "自动（按优先级）".

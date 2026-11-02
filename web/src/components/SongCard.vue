@@ -7,8 +7,8 @@
         <span class="song-name">{{ song.name }}</span>
         <span
           class="platform-badge"
-          :class="song.platform === 'bilibili' ? 'badge-bilibili' : song.platform === 'qq' ? 'badge-qq' : song.platform === 'youtube' ? 'badge-youtube' : song.platform === 'local' ? 'badge-local' : song.platform === 'kugou' ? 'badge-kugou' : song.platform === 'spotify' ? 'badge-spotify' : song.platform === 'jellyfin' ? 'badge-jellyfin' : 'badge-netease'"
-        >{{ song.platform === 'bilibili' ? 'B站' : song.platform === 'qq' ? 'QQ' : song.platform === 'youtube' ? 'YouTube' : song.platform === 'local' ? '本地' : song.platform === 'kugou' ? '酷狗' : song.platform === 'spotify' ? 'Spotify' : song.platform === 'jellyfin' ? 'Jellyfin' : '网易云' }}</span>
+          :class="badge.class"
+        >{{ badge.label }}</span>
         <span
           v-if="song.requestedBy"
           class="requester-badge"
@@ -18,7 +18,7 @@
       <div class="song-artist">{{ song.artist }}</div>
     </div>
     <div class="song-album">{{ song.album }}</div>
-    <div class="song-duration">{{ formatDuration(song.duration) }}</div>
+    <div class="song-duration">{{ song.live ? '直播' : formatDuration(song.duration) }}</div>
     <div class="song-actions">
       <button v-if="showPlay" class="action-btn" @click.stop="$emit('play')" title="播放">
         <Icon icon="mdi:play" />
@@ -40,7 +40,7 @@ import CoverArt from './CoverArt.vue';
 import { Song } from '../stores/player.js';
 import { useSession } from '../composables/useSession.js';
 
-defineProps<{
+const props = defineProps<{
   song: Song;
   index: number;
   active?: boolean;
@@ -50,6 +50,26 @@ const { can, guestCan } = useSession();
 const showPlay = computed(() => can('player.control') || guestCan('playNow'));
 const showPlayNext = computed(() => can('player.control') || guestCan('playNext'));
 const showAdd = computed(() => can('player.queue') || guestCan('addToQueue'));
+
+/**
+ * Platform badge. One table instead of the nested ternaries this used to be —
+ * those ended in a `badge-netease` fallback, so a source added later (radio)
+ * was silently labelled 网易云 on the history page.
+ */
+const PLATFORM_BADGES: Record<string, { label: string; class: string }> = {
+  netease: { label: '网易云', class: 'badge-netease' },
+  qq: { label: 'QQ', class: 'badge-qq' },
+  kugou: { label: '酷狗', class: 'badge-kugou' },
+  bilibili: { label: 'B站', class: 'badge-bilibili' },
+  youtube: { label: 'YouTube', class: 'badge-youtube' },
+  spotify: { label: 'Spotify', class: 'badge-spotify' },
+  jellyfin: { label: 'Jellyfin', class: 'badge-jellyfin' },
+  local: { label: '本地', class: 'badge-local' },
+  radio: { label: '电台', class: 'badge-radio' },
+};
+const badge = computed(
+  () => PLATFORM_BADGES[props.song.platform] ?? PLATFORM_BADGES.netease,
+);
 
 const emit = defineEmits<{
   play: [];
@@ -207,6 +227,11 @@ function formatDuration(seconds: number): string {
 .badge-jellyfin {
   background: var(--brand-jellyfin-12);
   color: var(--brand-jellyfin);
+}
+
+.badge-radio {
+  background: var(--brand-radio-12);
+  color: var(--brand-radio);
 }
 
 .song-artist {

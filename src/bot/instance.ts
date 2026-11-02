@@ -115,6 +115,7 @@ export interface BotInstanceOptions {
   kugouProvider?: MusicProvider;
   spotifyProvider?: MusicProvider;
   jellyfinProvider?: MusicProvider;
+  radioProvider?: MusicProvider;
   database: BotDatabase;
   config: BotConfig;
   logger: Logger;
@@ -152,6 +153,9 @@ export interface BotStatus {
   elapsed: number; // ground truth elapsed seconds from frame count
   /** 当前曲实际播放时长（秒）。试听片段=试听秒数；完整曲=duration。缺失时前端回退 currentSong.duration。 */
   effectiveDuration?: number;
+  /** Endless live stream (internet radio). The UI hides the progress bar and
+   *  seek control; `elapsed` still counts up as "time listened". */
+  isLive?: boolean;
 }
 
 export class BotInstance extends EventEmitter {
@@ -178,6 +182,7 @@ export class BotInstance extends EventEmitter {
   private kugouProvider: MusicProvider;
   private spotifyProvider: MusicProvider;
   private jellyfinProvider: MusicProvider;
+  private radioProvider: MusicProvider;
   private database: BotDatabase;
   private config: BotConfig;
   private logger: Logger;
@@ -203,8 +208,11 @@ export class BotInstance extends EventEmitter {
   private lastSearchResults: Song[] = [];
   /** 当前曲实际播放时长（试听片段秒数或完整 duration）；resolveAndPlay 赋值。 */
   private effectiveDuration: number | undefined;
-  /** Resume attempts for the current song's stream (#161); see resumeInterruptedStream. */
-  private streamRecovery: { song: QueuedSong; attempts: number; position: number; session: number; generation: number; pauseRequested: boolean; inFlight: boolean } | null = null;
+  /** Resume attempts for the current song's stream (#161); see resumeInterruptedStream.
+   *  `session` is the playback session that ended; it doubles as the "this
+   *  reconnect worked" marker for live stations, which have no position to
+   *  measure progress against. */
+  private streamRecovery: { song: QueuedSong; attempts: number; position: number; session: number; generation: number; pauseRequested: boolean; inFlight: boolean; live: boolean } | null = null;
   private playGate: Promise<unknown> = Promise.resolve();
   /** Per-bot Jellyfin playback-report session (start / ~10s progress / stop).
    *  null when the wired provider has no reporting capability. */
@@ -224,6 +232,7 @@ export class BotInstance extends EventEmitter {
     this.kugouProvider = options.kugouProvider ?? options.neteaseProvider;
     this.spotifyProvider = options.spotifyProvider ?? options.neteaseProvider;
     this.jellyfinProvider = options.jellyfinProvider ?? options.neteaseProvider;
+    this.radioProvider = options.radioProvider ?? options.neteaseProvider;
     this.database = options.database;
     this.config = options.config;
     this.logger = options.logger.child({ botId: this.id });
@@ -369,9 +378,23 @@ export class BotInstance extends EventEmitter {
 
     this.player.on("error", (err: Error) => {
       this.logger.error({ err }, "Player error");
-      this.playNext().catch((err2) => {
-        this.logger.error({ err: err2 }, "playNext failed after player error");
-      });
+      // A live station that fails to (re)start is recoverable: retrying the dial
+      // is what the listener wants, whereas playNext() would silently replace
+      // their radio station with the next queue entry. Every other platform
+      // keeps the old behaviour (advance) — its errors are not stream drops.
+      const song = this.queue.current();
+      const live = !!song && (song.live === true || song.platform === "radio");
+      if (!live) {
+        this.playNext().catch((err2) => {
+          this.logger.error({ err: err2 }, "playNext failed after player error");
+        });
+        return;
+      }
+      this.resumeInterruptedStream()
+        .then((handled) => (handled ? undefined : this.playNext()))
+        .catch((err2) => {
+          this.logger.error({ err: err2 }, "playNext failed after player error");
+        });
     });
 
     // Spotify advances exclusively via the sidecar's WebSocket "trackEnded"
@@ -965,6 +988,7 @@ export class BotInstance extends EventEmitter {
     if (platform === "kugou") return this.kugouProvider;
     if (platform === "spotify") return this.spotifyProvider;
     if (platform === "jellyfin") return this.jellyfinProvider;
+    if (platform === "radio") return this.radioProvider;
     return platform === "qq" ? this.qqProvider : this.neteaseProvider;
   }
 
@@ -994,6 +1018,7 @@ export class BotInstance extends EventEmitter {
     ["s", "spotify"],
     ["n", "netease"],
     ["j", "jellyfin"],
+    ["r", "radio"],
   ];
 
   private getProvider(flags: Set<string>): MusicProvider {
@@ -1155,8 +1180,11 @@ export class BotInstance extends EventEmitter {
       }
       song.url = result.url;
       // 试听片段用试听时长（让 player nearEnd 正确触发自动切歌）；完整曲回退 song.duration
-      this.effectiveDuration = result.trialDuration ?? song.duration;
-      this.player.play(result.url, 0, this.effectiveDuration);
+      // Live (radio) streams carry duration 0 and must be marked so the player
+      // skips EOF detection, seeking and seek-style resume.
+      const isLive = song.live === true || song.platform === "radio";
+      this.effectiveDuration = isLive ? 0 : (result.trialDuration ?? song.duration);
+      this.player.play(result.url, 0, this.effectiveDuration, isLive);
       // Jellyfin playback reporting: open a session for jellyfin tracks (the
       // reporter closes the previous one itself); close any open session when
       // playback moves to another source. Fire-and-forget — never blocks play.
@@ -1193,20 +1221,32 @@ export class BotInstance extends EventEmitter {
   private static readonly MAX_STREAM_URL_LOOKUPS = 3;
 
   /**
-   * Called when the player reports a track end. If a B站 stream ended long
-   * before its known duration, the CDN dropped it (#161): fetch a fresh URL
-   * and continue from where it stopped instead of skipping the rest of a
-   * 2-3 hour video. Gives up after MAX_STREAM_RESUMES attempts that make no
-   * real progress, so a truly broken stream still advances the queue.
+   * Called when the player reports a track end. Two different failures hide
+   * behind that event:
+   *
+   *  - A VOD stream (B站) ended long before its known duration: the CDN dropped
+   *    it (#161). Fetch a fresh URL and continue from where it stopped instead
+   *    of skipping the rest of a 2-3 hour video.
+   *  - A LIVE stream (radio) stopped at all: it has no end. The player only
+   *    reports one when ffmpeg died (network drop) or went silent for the dead
+   *    -stream window, and the fix in both cases is to dial the station again.
+   *    Advancing the queue here is exactly the false skip the live mode exists
+   *    to prevent.
+   *
+   * Gives up after MAX_STREAM_RESUMES attempts that make no real progress, so a
+   * truly broken source still advances the queue.
    *
    * Returns true when it handled the end (resumed, or a newer track has
    * already taken over), false when the caller should advance the queue.
    */
   private async resumeInterruptedStream(): Promise<boolean> {
     const song = this.queue.current();
-    if (!song || !this.connected || !BotInstance.RESUMABLE_PLATFORMS.has(song.platform)) {
+    if (!song || !this.connected) return false;
+    const live = song.live === true || song.platform === "radio";
+    if (!live && !BotInstance.RESUMABLE_PLATFORMS.has(song.platform)) {
       return false;
     }
+    if (live) return this.reconnectLiveStream(song);
     const duration = this.effectiveDuration ?? song.duration;
     const position = Math.floor(this.player.getElapsed());
     const endedSession = this.player.getPlaybackSessionId();
@@ -1224,7 +1264,7 @@ export class BotInstance extends EventEmitter {
       recovery.generation !== generation ||
       position - recovery.position > BotInstance.STREAM_END_TOLERANCE_S
     ) {
-      this.streamRecovery = { song, attempts: 0, position, session: endedSession, generation, pauseRequested: false, inFlight: false };
+      this.streamRecovery = { song, attempts: 0, position, session: endedSession, generation, pauseRequested: false, inFlight: false, live: false };
     }
     const state = this.streamRecovery!;
     if (state.inFlight) return true;
@@ -1282,6 +1322,106 @@ export class BotInstance extends EventEmitter {
         );
       }
       return false;
+    } finally {
+      state.inFlight = false;
+    }
+  }
+
+  /** Retry budget for re-dialling a live station (radio). A live stream has no
+   *  natural end, so any trackEnd it produces is a network failure; 5 attempts
+   *  with the backoff below rides out ~35s of outage before the queue moves on. */
+  private static readonly MAX_LIVE_RECONNECTS = 5;
+  /** How long a re-dialled station must play before it counts as recovered.
+   *  Without this a station that dies again after one second would look healthy
+   *  and reset its retry budget forever. */
+  private static readonly LIVE_STABLE_S = 60;
+
+  /**
+   * Re-dial the current live station after the player reported an end.
+   *
+   * Two failure shapes reach here, and both have the same fix:
+   *  - the decoder process died, so the player's "no ffmpeg + empty buffer"
+   *    branch fires trackEnd immediately;
+   *  - the stream went silent for the dead-stream window (MAX_LIVE_STALL).
+   *
+   * Unlike the VOD path there is no position to resume from: `play()` restarts
+   * at the live edge, which is exactly what the listener wants. The station URL
+   * is re-resolved first so a rotated CDN endpoint is picked up, but a failed
+   * lookup is not fatal — the previously resolved URL is usually still good,
+   * and radio has no login/token to expire.
+   */
+  private async reconnectLiveStream(song: QueuedSong): Promise<boolean> {
+    const endedSession = this.player.getPlaybackSessionId();
+    const generation = this.lifecycleGeneration;
+    const recovery = this.streamRecovery;
+    const isSameStation = !!recovery && recovery.live &&
+      recovery.song === song && recovery.generation === generation;
+    if (!isSameStation) {
+      this.streamRecovery = {
+        song, attempts: 0, position: 0, session: endedSession,
+        generation, pauseRequested: false, inFlight: false, live: true,
+      };
+    }
+    const state = this.streamRecovery!;
+    if (state.inFlight) return true;
+    // Budget is per outage, not per lifetime: a re-dial that actually played on
+    // for a while means this is a new interruption, so the station may retry
+    // that many times over again. Elapsed is the marker rather than the session
+    // id because play() always bumps the session — even when the fresh decoder
+    // dies instantly — which would otherwise look like success on every try and
+    // turn a dead station into an endless reconnect loop.
+    if (isSameStation && this.player.getElapsed() >= BotInstance.LIVE_STABLE_S) {
+      state.attempts = 0;
+    }
+    if (state.attempts >= BotInstance.MAX_LIVE_RECONNECTS) {
+      this.logger.warn(
+        { songId: song.id, attempts: state.attempts },
+        "Live stream keeps dying — giving up and advancing",
+      );
+      this.streamRecovery = null;
+      return false;
+    }
+
+    state.inFlight = true;
+    const isCurrent = () => this.connected && this.lifecycleGeneration === generation &&
+      this.streamRecovery === state && this.queue.current() === song &&
+      this.player.getPlaybackSessionId() === endedSession &&
+      this.player.getState() === "idle";
+    const cancelled = () => {
+      if (this.streamRecovery === state) this.streamRecovery = null;
+      return true;
+    };
+
+    try {
+      // Back off between attempts (1s, 2s, 3s, …) so a station that is truly
+      // down does not spin. The first attempt is immediate: a single dropped
+      // socket should reconnect with no audible gap.
+      await new Promise<void>((resolve) => setTimeout(resolve, state.attempts * 1000));
+      if (!isCurrent()) return cancelled();
+
+      let url = (song.url ?? "").trim();
+      try {
+        const fresh = await this.getProviderFor(song.platform).getSongUrl(song.id);
+        if (fresh?.url) url = fresh.url;
+      } catch {
+        // Keep the last known URL; the directory or mirror may be down while
+        // the station itself is still streaming.
+      }
+      if (!isCurrent()) return cancelled();
+      if (!url) return false;
+
+      state.attempts++;
+      song.url = url;
+      this.logger.warn(
+        { songId: song.id, name: song.name, attempt: state.attempts },
+        "Live stream dropped — reconnecting",
+      );
+      this.effectiveDuration = 0;
+      this.player.play(url, 0, 0, true);
+      state.session = this.player.getPlaybackSessionId();
+      if (state.pauseRequested) this.player.pause();
+      this.emit("stateChange");
+      return true;
     } finally {
       state.inFlight = false;
     }
@@ -1818,8 +1958,14 @@ export class BotInstance extends EventEmitter {
       return `Personal FM is not available for ${provider.platform}`;
     }
     const songs = await provider.getPersonalFm();
-    if (songs.length === 0)
-      return "No FM songs available (need to login first)";
+    if (songs.length === 0) {
+      // Radio needs no account: telling a user to log in would send them to a
+      // login flow that does not exist for it. What actually empties a radio FM
+      // is the directory being unreachable and no stations imported locally.
+      return provider.platform === "radio"
+        ? "No radio stations available — the directory is unreachable and no stations are imported"
+        : "No FM songs available (need to login first)";
+    }
 
     this.player.stop();
     this.queue.clear();
@@ -2210,6 +2356,7 @@ export class BotInstance extends EventEmitter {
       playMode: this.queue.getMode(),
       elapsed: this.player.getElapsed(),
       effectiveDuration: this.effectiveDuration,
+      isLive: this.queue.current()?.live === true || this.queue.current()?.platform === "radio",
     };
   }
 

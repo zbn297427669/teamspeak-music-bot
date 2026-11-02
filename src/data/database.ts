@@ -48,7 +48,7 @@ export interface PlayHistoryEntry {
   songName: string;
   artist: string;
   album: string;
-  platform: "netease" | "qq" | "bilibili" | "youtube" | "local" | "kugou" | "spotify" | "jellyfin";
+  platform: "netease" | "qq" | "bilibili" | "youtube" | "local" | "kugou" | "spotify" | "jellyfin" | "radio";
   coverUrl: string;
   requestedBy?: string;
 }

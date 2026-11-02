@@ -10,11 +10,13 @@ export interface QueuedSong {
   name: string;
   artist: string;
   album: string;
-  platform: "netease" | "qq" | "bilibili" | "youtube" | "local" | "kugou" | "spotify" | "jellyfin";
+  platform: "netease" | "qq" | "bilibili" | "youtube" | "local" | "kugou" | "spotify" | "jellyfin" | "radio";
   url?: string; // resolved lazily at play time
   coverUrl: string;
   duration: number; // seconds
   requestedBy?: string;
+  /** Live stream (internet radio): endless, not seekable. See Song.live. */
+  live?: boolean;
 }
 
 /**

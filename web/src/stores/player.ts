@@ -12,12 +12,26 @@ export interface Song {
   album: string;
   duration: number;
   coverUrl: string;
-  platform: 'netease' | 'qq' | 'bilibili' | 'youtube' | 'local' | 'kugou' | 'spotify' | 'jellyfin';
+  platform: 'netease' | 'qq' | 'bilibili' | 'youtube' | 'local' | 'kugou' | 'spotify' | 'jellyfin' | 'radio';
+  /** Endless live stream (internet radio): no duration, no seeking. */
+  live?: boolean;
   requestedBy?: string;
   playedAt?: string;
 }
 
+/** Sources that can be a *default* or a tab selection. Radio is deliberately
+ *  absent: a station is chosen on the radio page, not by name search, so it is
+ *  never the fallback for `!play` or a home-page tab. */
 export type Source = 'jellyfin' | 'netease' | 'qq' | 'kugou' | 'spotify';
+
+/** Everything `Source` accepts, kept as one list so a stored tab value and a
+ *  validation helper cannot drift apart again (radio was added to sourceTabs'
+ *  hand-written comparison but not to `Source`, which made that branch dead). */
+export const SOURCES: readonly Source[] = ['jellyfin', 'netease', 'qq', 'kugou', 'spotify'];
+
+export function isSource(value: unknown): value is Source {
+  return typeof value === 'string' && (SOURCES as readonly string[]).includes(value);
+}
 
 export interface BiliPart {
   part: number;
@@ -57,6 +71,8 @@ export interface BotStatus {
   volume: number;
   playMode: string;
   elapsed?: number;
+  /** Endless live stream: elapsed still counts up, but there is no total. */
+  isLive?: boolean;
 }
 
 export interface PlaylistItem {
@@ -709,7 +725,10 @@ export const usePlayerStore = defineStore('player', {
       if (bot) bot.playMode = mode;
     },
 
-    async startFm(platform: Source = 'netease') {
+    /** `platform` also accepts 'radio', which starts a live-station FM stream.
+     *  Radio is not a `Source` (it can never be the default or a tab), so the
+     *  parameter is the wire platform rather than the tab enum. */
+    async startFm(platform: Source | 'radio' = 'netease') {
       if (!this.activeBotId) return;
       const res = await axios.post(`/api/player/${this.activeBotId}/fm`, { platform });
       if (res.data?.message) {

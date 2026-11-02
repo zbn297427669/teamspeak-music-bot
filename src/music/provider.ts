@@ -8,7 +8,8 @@ export type Platform =
   | "local"
   | "kugou"
   | "spotify"
-  | "jellyfin";
+  | "jellyfin"
+  | "radio";
 
 export interface Song {
   id: string;
@@ -21,6 +22,10 @@ export interface Song {
   /** VIP / copyright-restricted: non-VIP users can only play a trial fragment
    *  (NetEase fee=1 VIP / fee=4 album-only, or QQ pay.payplay/paytrackprice=1). */
   vip?: boolean;
+  /** Live stream (internet radio): endless, not seekable, never "ends" on its
+   *  own. The player must not apply track-end detection and the UI must not
+   *  render a progress bar. `duration` is 0 for these. */
+  live?: boolean;
 }
 
 export interface SongWithUrl extends Song {

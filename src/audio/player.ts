@@ -238,7 +238,20 @@ export class AudioPlayer extends EventEmitter {
   // as dead and advance instead of staying silent forever. Set high so a normal
   // transient underrun never trips it.
   private static readonly MAX_STALL_ATTEMPTS = 3000;
+  /**
+   * Dead-stream guard for live radio. A radio stream that produces no audio for
+   * this long is genuinely dead (the endpoint usually severed hours ago), so the
+   * queue advances instead of sitting silent forever. ~3 minutes of 20ms frames
+   * — long enough to ride out a real network outage, short enough to recover.
+   */
+  private static readonly MAX_LIVE_STALL_ATTEMPTS = 9000;
   private currentSongDuration = 0; // 当前歌曲总时长（秒）
+  /**
+   * Live stream (internet radio). An endless source: it never reaches a natural
+   * end, so EOF-style track-end detection must not fire, seeking is meaningless,
+   * and resuming after a pause reconnects instead of replaying buffered audio.
+   */
+  private live = false;
 
   // --- External PCM mode (Stage 2: go-librespot Spotify sidecar) ---
   // When true, PCM arrives from a long-lived external Readable instead of a
@@ -262,11 +275,11 @@ export class AudioPlayer extends EventEmitter {
     this.logger = logger;
   }
 
-  play(url: string, seekSeconds = 0, songDuration = 0): void {
+  play(url: string, seekSeconds = 0, songDuration = 0, live = false): void {
     // 1. 停止当前所有播放，自增 sessionId 屏蔽旧回调 （
     this.stop(true);
 
-    const currentSessionId = this.sessionId; 
+    const currentSessionId = this.sessionId;
     this.currentUrl = url;
     this.seekOffset = seekSeconds;
     this.framesPlayed = 0;
@@ -275,6 +288,9 @@ export class AudioPlayer extends EventEmitter {
     this.spawnFailed = false;
     this.emptyFrameAttempts = 0;
     this.currentSongDuration = songDuration;
+    // Set AFTER stop(true), which clears it: an endless stream must not be
+    // declared finished just because no URL-backed ffmpeg exists any more.
+    this.live = live;
 
     if (this.consecutiveFailures >= AudioPlayer.MAX_CONSECUTIVE_FAILURES) {
       this.logger.error({ failures: this.consecutiveFailures }, "FFmpeg failures limit reached");
@@ -663,6 +679,7 @@ export class AudioPlayer extends EventEmitter {
     this.transportRampEnd = null;
     this.transportRampFrom = 1;
     this.transportRampTo = 1;
+    this.live = false;
     if (keepAlive) {
       this.frameLoopRunning = true;
       this.nextFrameTime = wasRunning ? Math.max(performance.now(), deadline - FRAME_DURATION_MS) : performance.now();
@@ -738,9 +755,15 @@ export class AudioPlayer extends EventEmitter {
       // 条件1: FFmpeg仍在运行但缓冲区不足一帧，且连续多次无法获取数据
       // 条件2: 已播放时间接近歌曲结尾（最后5秒内）或未知时长
       const elapsed = this.getElapsed();
-      const isNearEnd = this.currentSongDuration > 0 
-        ? (this.currentSongDuration - elapsed) <= 5 // 距离结尾不足5秒
-        : true; // 未知时长时保守处理
+      // A live stream never reaches a natural end, so there is no "near end" to
+      // hurry towards. Treat it as far-from-end so only the long dead-stream
+      // window (MAX_LIVE_STALL_ATTEMPTS) can end it — a 5s buffer dip must not
+      // skip a radio station.
+      const isNearEnd = this.live
+        ? false
+        : this.currentSongDuration > 0
+          ? (this.currentSongDuration - elapsed) <= 5 // 距离结尾不足5秒
+          : true; // 未知时长时保守处理
       
       // External mode: the sidecar PCM stream is continuous and never EOFs per
       // song; a transient underrun must NOT end the track (advance is driven by
@@ -766,7 +789,7 @@ export class AudioPlayer extends EventEmitter {
             this.emptyFrameAttempts,
             isNearEnd,
             AudioPlayer.MAX_EMPTY_ATTEMPTS,
-            AudioPlayer.MAX_STALL_ATTEMPTS,
+            this.live ? AudioPlayer.MAX_LIVE_STALL_ATTEMPTS : AudioPlayer.MAX_STALL_ATTEMPTS,
           )
         ) {
           this.logger.info({
@@ -943,6 +966,9 @@ export class AudioPlayer extends EventEmitter {
     // on the spotify: sentinel would collide with the continuous PCM source;
     // transport is delegated to the SpotifyController by the caller (Task 7).
     if (this.externalMode) return;
+    // Live radio has no timeline to seek within: `-ss` on an endless stream
+    // reconnects at an arbitrary point (or fails outright), so refuse.
+    if (this.live) return;
     if (this.currentUrl && Number.isFinite(seconds) && seconds >= 0) {
       const paused = this.state === "paused";
       this.play(this.currentUrl, seconds, this.currentSongDuration);
@@ -956,7 +982,24 @@ export class AudioPlayer extends EventEmitter {
       this.state = "paused";
     }
   }
-  resume(): void { if (this.state === "paused") { this.pauseFrames = 0; this.resumeSilenceFrames = 3; this.setTransportRamp(1, 3, 5); this.state = "playing"; } }
+  resume(): void {
+    if (this.state !== "paused") return;
+    // A paused live stream kept ffmpeg running against the network. Everything
+    // that arrived meanwhile sits in socket buffers, so merely resuming replays
+    // stale audio and lands the listener far behind "now". Reconnect instead,
+    // which is what the upstream decoder does for this case.
+    if (this.live && this.currentUrl) {
+      const url = this.currentUrl;
+      this.play(url, 0, 0, true);
+      return;
+    }
+    this.pauseFrames = 0;
+    this.resumeSilenceFrames = 3;
+    this.setTransportRamp(1, 3, 5);
+    this.state = "playing";
+  }
+  /** True while attached to an endless source (internet radio). */
+  isLive(): boolean { return this.live; }
   resetFailures(): void { this.consecutiveFailures = 0; }
   setVolume(vol: number): void { this.volume = Math.max(0, Math.min(100, vol)); }
   getVolume(): number { return this.volume; }

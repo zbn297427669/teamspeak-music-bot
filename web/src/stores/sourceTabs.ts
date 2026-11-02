@@ -1,4 +1,4 @@
-import type { Source } from './player.js';
+import { isSource, type Source } from './player.js';
 
 const STORAGE_KEY = 'source-tabs';
 
@@ -28,7 +28,9 @@ function readAll(): Partial<Record<TabKey, Source>> {
 export function loadTabSource(key: TabKey, fallback: Source = 'netease'): Source {
   const all = readAll();
   const v = all[key];
-  return v === 'jellyfin' || v === 'netease' || v === 'qq' || v === 'kugou' || v === 'spotify' ? v : fallback;
+  // Validated against the one source list rather than a hand-written chain: the
+  // chain had drifted (it accepted 'radio', which `Source` does not include).
+  return isSource(v) ? v : fallback;
 }
 
 export function saveTabSource(key: TabKey, value: Source): void {

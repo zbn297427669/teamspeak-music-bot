@@ -82,6 +82,7 @@ export class BotManager extends EventEmitter {
   private kugouProvider: MusicProvider;
   private spotifyProvider: MusicProvider;
   private jellyfinProvider: MusicProvider;
+  private radioProvider: MusicProvider;
   private spotifyDataDir: string;
   private readonly spotifyOAuth?: SpotifyOAuth;
   private database: BotDatabase;
@@ -106,7 +107,8 @@ export class BotManager extends EventEmitter {
     spotifyProvider?: MusicProvider,
     spotifyDataDir?: string,
     spotifyOAuth?: SpotifyOAuth,
-    jellyfinProvider?: MusicProvider
+    jellyfinProvider?: MusicProvider,
+    radioProvider?: MusicProvider
   ) {
     super();
     this.neteaseProvider = neteaseProvider;
@@ -117,6 +119,7 @@ export class BotManager extends EventEmitter {
     this.kugouProvider = kugouProvider ?? neteaseProvider;
     this.spotifyProvider = spotifyProvider ?? neteaseProvider;
     this.jellyfinProvider = jellyfinProvider ?? neteaseProvider;
+    this.radioProvider = radioProvider ?? neteaseProvider;
     this.spotifyDataDir = spotifyDataDir ?? path.join(process.cwd(), "data", "spotify");
     this.spotifyOAuth = spotifyOAuth;
     // Let the local provider see which uploads are still referenced by any
@@ -159,6 +162,7 @@ export class BotManager extends EventEmitter {
       kugouProvider: this.kugouProvider,
       spotifyProvider: this.spotifyProvider,
       jellyfinProvider: this.jellyfinProvider,
+      radioProvider: this.radioProvider,
       database: this.database,
       config: this.config,
       logger: this.logger,
@@ -304,6 +308,7 @@ export class BotManager extends EventEmitter {
         kugouProvider: this.kugouProvider,
         spotifyProvider: this.spotifyProvider,
         jellyfinProvider: this.jellyfinProvider,
+        radioProvider: this.radioProvider,
         database: this.database,
         config: this.config,
         logger: this.logger,
@@ -363,6 +368,7 @@ export class BotManager extends EventEmitter {
         kugouProvider: this.kugouProvider,
         spotifyProvider: this.spotifyProvider,
         jellyfinProvider: this.jellyfinProvider,
+        radioProvider: this.radioProvider,
         database: this.database,
         config: this.config,
         logger: this.logger,

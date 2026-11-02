@@ -10,6 +10,8 @@ import { BiliBiliProvider } from "./music/bilibili.js";
 import { LocalMusicProvider } from "./music/local.js";
 import { KugouProvider } from "./music/kugou.js";
 import { JellyfinProvider } from "./music/jellyfin.js";
+import { RadioProvider } from "./music/radio.js";
+import { LocalRadioStore } from "./music/radio-local.js";
 import { SpotifyProvider } from "./music/spotify/provider.js";
 import { SpotifyOAuth, createFileOAuthTokenStore } from "./music/spotify/spotify-oauth.js";
 import { createCookieStore } from "./music/auth.js";
@@ -31,6 +33,7 @@ const LOG_DIR = path.join(DATA_DIR, "logs");
 const COOKIE_DIR = path.join(DATA_DIR, "cookies");
 const AVATAR_DIR = path.join(DATA_DIR, "avatars");
 const LOCAL_AUDIO_DIR = path.join(DATA_DIR, "local-audio");
+const LOCAL_RADIO_PATH = path.join(DATA_DIR, "local-radio.json");
 const SPOTIFY_DATA_DIR = path.join(DATA_DIR, "spotify");
 const STATIC_DIR = path.join(ROOT_DIR, "web", "dist");
 
@@ -100,6 +103,14 @@ async function main() {
   if (jellyfinAuth) jellyfinProvider.setCookie(jellyfinAuth);
   jellyfinProvider.setPersist((serialized) => cookieStore.save("jellyfin", serialized));
 
+  // Internet radio: the directory is anonymous, so there is nothing to
+  // configure. Creating it unconditionally is harmless — the provider is inert
+  // until "radio" is listed in enabledProviders. Operator-imported stations
+  // (M3U/URL) come from a JSON file next to config.json so they survive
+  // restarts and container rebuilds with the rest of the persisted data.
+  const radioLocalStore = new LocalRadioStore(LOCAL_RADIO_PATH, logger);
+  const radioProvider = new RadioProvider({ logger, localStations: radioLocalStore });
+
   // Restore the persisted per-provider audio quality (#125) onto the shared,
   // process-wide providers so a restart keeps the user's choice. setQuality()
   // normalizes/ignores unknown values, so a stale entry can never break playback.
@@ -142,7 +153,8 @@ async function main() {
     spotifyProvider,
     SPOTIFY_DATA_DIR,
     spotifyOAuth,
-    jellyfinProvider
+    jellyfinProvider,
+    radioProvider
   );
   await botManager.loadSavedBots();
 
@@ -156,6 +168,8 @@ async function main() {
     kugouProvider,
     spotifyProvider,
     jellyfinProvider,
+    radioProvider,
+    radioLocalStore,
     database: db,
     avatarStore,
     config,

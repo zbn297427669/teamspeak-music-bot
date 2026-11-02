@@ -70,6 +70,7 @@ export function createMusicRouter(
   // When set (alongside config), a quality change is persisted to config.json so
   // it survives a restart (#125). Omitted by unit-test routers → no persistence.
   configPath?: string,
+  radioProvider?: MusicProvider,
 ): Router {
   const router = Router();
   const youtubeProvider: MusicProvider = new YouTubeProvider();
@@ -85,6 +86,7 @@ export function createMusicRouter(
     if (platform === "kugou" && kugouProvider) return kugouProvider;
     if (platform === "spotify" && spotifyProvider) return spotifyProvider;
     if (platform === "jellyfin" && jellyfinProvider) return jellyfinProvider;
+    if (platform === "radio" && radioProvider) return radioProvider;
     return platform === "qq" ? qqProvider : neteaseProvider;
   }
 
@@ -456,6 +458,10 @@ export function createMusicRouter(
       "kugou",
       "spotify",
       "local",
+      // Opt-in like jellyfin: absent from `enabled` until an admin turns it on,
+      // but it must be listed so the Settings card and the radio page see the
+      // same gate the backend enforces.
+      "radio",
     ];
     res.json({
       enabled: config ? ALL_PLATFORMS.filter((p) => isProviderEnabled(config, p)) : ALL_PLATFORMS,

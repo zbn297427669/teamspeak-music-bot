@@ -87,6 +87,8 @@
   --brand-spotify-12: rgba(29, 185, 84, 0.12);
   --brand-jellyfin: #aa5cc3;
   --brand-jellyfin-12: rgba(170, 92, 195, 0.12);
+  --brand-radio: #e07b39;
+  --brand-radio-12: rgba(224, 123, 57, 0.12);
 }
 
 // Dark theme (default)
@@ -94,6 +96,10 @@
 [data-theme='dark'] {
   --bg-primary: #222222;
   --bg-secondary: #323232;
+  // Opaque surface for things the browser paints itself (native <select>
+  // dropdowns, autofill lists). Translucent tokens render as pure white in
+  // those popups, which made dark-theme options white-on-white.
+  --bg-elevated: #383838;
   --bg-card: rgba(255, 255, 255, 0.04);
   --bg-navbar: rgba(34, 34, 34, 0.86);
   --bg-modal-scrim: rgba(0, 0, 0, 0.55);
@@ -107,6 +113,7 @@
 [data-theme='light'] {
   --bg-primary: #ffffff;
   --bg-secondary: #f5f5f7;
+  --bg-elevated: #ffffff;
   --bg-card: rgba(0, 0, 0, 0.02);
   --bg-navbar: rgba(255, 255, 255, 0.86);
   --bg-modal-scrim: rgba(0, 0, 0, 0.35);

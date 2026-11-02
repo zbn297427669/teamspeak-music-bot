@@ -61,6 +61,16 @@
         </div>
         <Icon icon="mdi:play-circle" class="fm-play-icon" />
       </div>
+      <div v-if="enabled('radio')" class="fm-card hover-scale" @click="playFm('radio')">
+        <div class="fm-icon-wrapper radio">
+          <Icon icon="mdi:radio-tower" class="fm-icon" />
+        </div>
+        <div class="fm-info">
+          <div class="fm-title">网络电台</div>
+          <div class="fm-desc">热门台 + 我的电台 随机开一台</div>
+        </div>
+        <Icon icon="mdi:play-circle" class="fm-play-icon" />
+      </div>
     </section>
 
     <!-- Jellyfin: 最近添加 -->
@@ -262,7 +272,9 @@ const enabled = (p: string) => store.enabledProviders.includes(p);
 const fmCardCount = computed(() =>
   ['jellyfin', 'netease'].filter(enabled).length +
   (enabled('qq') && store.authStatus.qq ? 1 : 0) +
-  (enabled('kugou') && store.authStatus.kugou ? 1 : 0),
+  (enabled('kugou') && store.authStatus.kugou ? 1 : 0) +
+  // Radio needs no login, so enabling the source is the only condition.
+  (enabled('radio') ? 1 : 0),
 );
 
 // Available sources per section. Jellyfin has no daily/recommend concept —
@@ -317,7 +329,7 @@ const visibleUserPlaylists = computed(() =>
     : currentUserPlaylists.value.slice(0, USER_PLAYLIST_LIMIT)
 );
 
-async function playFm(platform: Source) {
+async function playFm(platform: Source | 'radio') {
   await store.startFm(platform);
 }
 
@@ -472,6 +484,10 @@ onMounted(() => {
   // Jellyfin's brand gradient (purple → blue).
   &.jellyfin {
     background: linear-gradient(135deg, var(--brand-jellyfin), #00a4dc);
+  }
+
+  &.radio {
+    background: linear-gradient(135deg, var(--brand-radio), #b8552a);
   }
 }
 

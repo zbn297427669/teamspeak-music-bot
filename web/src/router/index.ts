@@ -21,6 +21,7 @@ const router = createRouter({
       meta: { kind: 'album' },
     },
     { path: '/artist/:id', name: 'artist', component: () => import('../views/Artist.vue') },
+    { path: '/radio', name: 'radio', component: () => import('../views/Radio.vue') },
     { path: '/lyrics', name: 'lyrics', component: () => import('../views/Lyrics.vue') },
     { path: '/history', name: 'history', component: () => import('../views/History.vue') },
     { path: '/saved-queues', name: 'saved-queues', component: () => import('../views/SavedQueues.vue') },

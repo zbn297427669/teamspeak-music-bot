@@ -635,7 +635,8 @@ describe("BotInstance.resolveAndPlay — Spotify routing (C4)", () => {
     expect(ok).toBe(true);
     expect(controller.pause).toHaveBeenCalledTimes(1);
     expect(ctx.currentSourceIsSpotify).toBe(false);
-    expect(player.play).toHaveBeenCalledWith("http://cdn/x.mp3", 0, 200);
+    // 4th arg is the live-stream flag; an ordinary track must pass false.
+    expect(player.play).toHaveBeenCalledWith("http://cdn/x.mp3", 0, 200, false);
     expect(player.playPcmStream).not.toHaveBeenCalled();
   });
 
@@ -1759,6 +1760,139 @@ describe("resumeInterruptedStream — long B站 streams dying mid-play (#161)", 
       return { url: "https://fresh.test/a.m4s" };
     });
     expect(await resumeInterruptedStream.call(ctx)).toBe(true); // handled: don't advance again
+    expect(ctx.player.play).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A live station never ends on its own, so every trackEnd it produces is a
+ * network failure. The player reports one from two places — the decoder exiting
+ * ("no ffmpeg + empty buffer") and the dead-stream watchdog — and advancing the
+ * queue on either is exactly the false skip that live mode exists to prevent.
+ */
+describe("resumeInterruptedStream — live (radio) stations reconnect instead of skipping", () => {
+  beforeEach(() => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }));
+  afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
+  const resumeInterruptedStream = (BotInstance.prototype as any).resumeInterruptedStream as (
+    this: unknown,
+  ) => Promise<boolean>;
+  const reconnectLiveStream = (BotInstance.prototype as any).reconnectLiveStream as (
+    this: unknown,
+    song: unknown,
+  ) => Promise<boolean>;
+
+  function makeLiveCtx(opts: { url?: string | null } = {}) {
+    const song: any = {
+      id: "station-1", name: "上海经典947", artist: "中国", album: "",
+      coverUrl: "", platform: "radio", duration: 0, url: "http://old.test/live.mp3", live: true,
+    };
+    let state: "idle" | "playing" = "idle";
+    let elapsed = 0;
+    let session = 1;
+    const provider = {
+      getSongUrl: vi.fn(async () => (opts.url === null ? null : { url: opts.url ?? "http://fresh.test/live.mp3" })),
+    };
+    const ctx: any = {
+      song,
+      provider,
+      connected: true,
+      lifecycleGeneration: 0,
+      effectiveDuration: 0,
+      streamRecovery: null,
+      queue: { current: vi.fn(() => song) },
+      player: {
+        getElapsed: vi.fn(() => elapsed),
+        getState: vi.fn(() => state),
+        getPlaybackSessionId: vi.fn(() => session),
+        play: vi.fn(() => { state = "playing"; session++; elapsed = 0; }),
+        pause: vi.fn(),
+      },
+      getProviderFor: vi.fn(() => provider),
+      logger: { warn: vi.fn(), info: vi.fn() },
+      emit: vi.fn(),
+      // The decoder dies: playback stops, and the session that ended is the
+      // one still current until a re-dial replaces it.
+      drop: () => { state = "idle"; },
+      playedFor: (seconds: number) => { elapsed = seconds; },
+    };
+    // resumeInterruptedStream delegates to the live helper, which the minimal
+    // fake context does not inherit — bind the real shipped implementation.
+    ctx.reconnectLiveStream = (s: unknown) => reconnectLiveStream.call(ctx, s);
+    return ctx;
+  }
+
+  async function reconnect(ctx: any, fn = reconnectLiveStream): Promise<boolean> {
+    const p = fn.call(ctx, ctx.song);
+    await vi.advanceTimersByTimeAsync(120_000);
+    return p;
+  }
+
+  it("re-dials the same station at the live edge instead of advancing", async () => {
+    const ctx = makeLiveCtx();
+    ctx.drop();
+    expect(await reconnect(ctx)).toBe(true);
+    expect(ctx.provider.getSongUrl).toHaveBeenCalledWith("station-1");
+    // No seek offset, no duration, and the live flag preserved.
+    expect(ctx.player.play).toHaveBeenCalledWith("http://fresh.test/live.mp3", 0, 0, true);
+    expect(ctx.song.url).toBe("http://fresh.test/live.mp3");
+  });
+
+  it("falls back to the last resolved URL when the directory lookup fails", async () => {
+    const ctx = makeLiveCtx({ url: null });
+    ctx.drop();
+    expect(await reconnect(ctx)).toBe(true);
+    expect(ctx.player.play).toHaveBeenCalledWith("http://old.test/live.mp3", 0, 0, true);
+  });
+
+  it("routes a radio track through the live path even without the live flag", async () => {
+    const ctx = makeLiveCtx();
+    delete ctx.song.live;
+    ctx.drop();
+    const p = resumeInterruptedStream.call(ctx);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(await p).toBe(true);
+    expect(ctx.player.play).toHaveBeenCalledWith("http://fresh.test/live.mp3", 0, 0, true);
+  });
+
+  it("gives up after MAX_LIVE_RECONNECTS so a dead station cannot hang the queue", async () => {
+    const ctx = makeLiveCtx();
+    for (let i = 0; i < 5; i++) {
+      ctx.drop();
+      expect(await reconnect(ctx)).toBe(true);
+    }
+    ctx.drop();
+    expect(await reconnect(ctx)).toBe(false);
+    expect(ctx.player.play).toHaveBeenCalledTimes(5);
+  });
+
+  it("re-arms the budget once a re-dial has actually played for a while", async () => {
+    const ctx = makeLiveCtx();
+    for (let i = 0; i < 5; i++) {
+      ctx.drop();
+      await reconnect(ctx);
+    }
+    // The station played on for a few minutes, then dropped again: a fresh
+    // outage, so the full budget applies again.
+    ctx.playedFor(300);
+    ctx.drop();
+    expect(await reconnect(ctx)).toBe(true);
+    expect(ctx.streamRecovery.attempts).toBe(1);
+
+    // Dying again straight away keeps counting, so a flapping station still
+    // exhausts the budget rather than looping forever.
+    ctx.drop();
+    expect(await reconnect(ctx)).toBe(true);
+    expect(ctx.streamRecovery.attempts).toBe(2);
+  });
+
+  it("stops reconnecting once the user moved to another track", async () => {
+    const ctx = makeLiveCtx();
+    ctx.provider.getSongUrl.mockImplementation(async () => {
+      ctx.queue.current.mockReturnValue({ id: "other", platform: "netease" });
+      return { url: "http://fresh.test/live.mp3" };
+    });
+    ctx.drop();
+    expect(await reconnect(ctx)).toBe(true); // handled: do not advance on top
     expect(ctx.player.play).not.toHaveBeenCalled();
   });
 });
